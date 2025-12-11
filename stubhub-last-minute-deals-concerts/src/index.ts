@@ -14,6 +14,7 @@ interface ConcertDeal {
 const LOCATION = 'Las Vegas';
 const DAYS_AHEAD = 3;
 const TICKET_QUANTITY = 2;
+const DEBUG = false; // Set to true to output all events without filtering
 
 /**
  * Available event categories for filtering:
@@ -46,6 +47,23 @@ const EXCLUDED_KEYWORDS = [
   'vs', 'bowl', 'boxing', 'wrestling', 'tennis', 'racing',
   // Specific teams/events you want to exclude
   'magic', 'knicks', 'raiders', 'giants'
+];
+
+/**
+ * List of specific events to EXCLUDE by name (case-insensitive regex matching)
+ * 
+ * Each string is treated as a regex pattern and matched against the lowercased event title.
+ * 
+ * Examples:
+ * - 'gavin adcock' - excludes any event with "gavin adcock" in the title
+ * - 'bruno mars' - excludes any event with "bruno mars" in the title
+ * - '^imagine dragons' - excludes events starting with "imagine dragons"
+ * - 'taylor swift.*concert' - excludes events matching "taylor swift" followed by "concert"
+ */
+const EXCLUDED_EVENTS: string[] = [
+  'gavin adcock',
+  '*wizard of oz*',
+  'discoshow'
 ];
 
 /**
@@ -401,7 +419,22 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
           }).filter(Boolean);
         });
         
-
+        
+        // Debug mode: output all events found before filtering
+        if (DEBUG) {
+          console.log('\n=== DEBUG MODE: All Events Found (Before Filtering) ===\n');
+          eventLinks.forEach((event, idx) => {
+            if (event) {
+              console.log(`[${idx + 1}/${eventLinks.length}] ${event.title}`);
+              console.log(`  Venue: ${event.venue || 'N/A'}`);
+              console.log(`  Date: ${event.date || 'N/A'}`);
+              console.log(`  Price: ${event.price || 'N/A'}`);
+              console.log(`  URL: ${event.url}`);
+              console.log('');
+            }
+          });
+          console.log('=== End Debug Output ===\n');
+        }
         
         // Filter and process events
         const now = new Date();
@@ -413,54 +446,72 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
             // Try to parse date from the event info
             let includeEvent = true;
             
-            // Check if event is within next 3 days
-            if (event.date) {
-              const dateStr = event.date.toLowerCase();
-              
-              // Check if it's "today" or "thu, dec 11" (today's date)
-              if (dateStr.includes('today') || dateStr.includes('thu, dec 11')) {
-                includeEvent = true;
-              } else {
-                // Try to parse the date
-                const dateMatch = event.date.match(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+(\w+)\s+(\d+)/i);
-                if (dateMatch) {
-                  try {
-                    const month = dateMatch[2];
-                    const day = parseInt(dateMatch[3]);
-                    const currentYear = now.getFullYear();
-                    const eventDate = new Date(`${month} ${day}, ${currentYear}`);
-                    
-                    // Set to end of day for proper comparison
-                    eventDate.setHours(23, 59, 59, 999);
-                    
-                    // If the parsed date is in the past, it might be next year
-                    if (eventDate < now) {
-                      eventDate.setFullYear(currentYear + 1);
-                    }
-                    
-                    // Only include if within next 3 days
-                    if (eventDate <= endDate) {
-                      includeEvent = true;
-                    } else {
+            // In debug mode, skip all filtering
+            if (DEBUG) {
+              includeEvent = true;
+            } else {
+              // Check if event is within next 3 days
+              if (event.date) {
+                const dateStr = event.date.toLowerCase();
+                
+                // Check if it's "today" or "thu, dec 11" (today's date)
+                if (dateStr.includes('today') || dateStr.includes('thu, dec 11')) {
+                  includeEvent = true;
+                } else {
+                  // Try to parse the date
+                  const dateMatch = event.date.match(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+(\w+)\s+(\d+)/i);
+                  if (dateMatch) {
+                    try {
+                      const month = dateMatch[2];
+                      const day = parseInt(dateMatch[3]);
+                      const currentYear = now.getFullYear();
+                      const eventDate = new Date(`${month} ${day}, ${currentYear}`);
+                      
+                      // Set to end of day for proper comparison
+                      eventDate.setHours(23, 59, 59, 999);
+                      
+                      // If the parsed date is in the past, it might be next year
+                      if (eventDate < now) {
+                        eventDate.setFullYear(currentYear + 1);
+                      }
+                      
+                      // Only include if within next 3 days
+                      if (eventDate <= endDate) {
+                        includeEvent = true;
+                      } else {
+                        includeEvent = false;
+                      }
+                    } catch {
+                      // If we can't parse, exclude it to be safe
                       includeEvent = false;
                     }
-                  } catch {
-                    // If we can't parse, exclude it to be safe
+                  } else {
+                    // No recognizable date format, exclude
                     includeEvent = false;
                   }
-                } else {
-                  // No recognizable date format, exclude
-                  includeEvent = false;
                 }
+              } else {
+                // No date information, exclude
+                includeEvent = false;
               }
-            } else {
-              // No date information, exclude
-              includeEvent = false;
             }
             
-            // Filter based on excluded keywords
+            // Filter based on excluded keywords (skip in debug mode)
             const titleLower = event.title.toLowerCase();
-            const isIncluded = !EXCLUDED_KEYWORDS.some(keyword => titleLower.includes(keyword.toLowerCase()));
+            const keywordMatch = !EXCLUDED_KEYWORDS.some(keyword => titleLower.includes(keyword.toLowerCase()));
+            
+            // Filter based on excluded events regex patterns (skip in debug mode)
+            const eventMatch = !EXCLUDED_EVENTS.some(pattern => {
+              try {
+                const regex = new RegExp(pattern, 'i');
+                return regex.test(titleLower);
+              } catch {
+                // If regex is invalid, fall back to simple includes
+                return titleLower.includes(pattern.toLowerCase());
+              }
+            });
+            
+            const isIncluded = DEBUG || (keywordMatch && eventMatch);
             
             if (includeEvent && isIncluded) {
               deals.push({
