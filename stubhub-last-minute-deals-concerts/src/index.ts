@@ -10,6 +10,18 @@ interface ConcertDeal {
   url: string;
 }
 
+// Configuration constants
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const MIN_TITLE_LENGTH = 5;
+const EVENT_SELECTORS = [
+  '.EventCardstyle__StyledEventCard',
+  '[data-testid="event-card"]',
+  '.event-card',
+  '.event-item',
+  'article[class*="event"]',
+  'div[class*="event-card"]'
+];
+
 /**
  * Fetches last minute concert deals from StubHub
  */
@@ -25,7 +37,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': USER_AGENT,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Accept-Encoding': 'gzip, deflate, br',
@@ -42,18 +54,9 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     // that looks for common patterns in event listings
     
     // Look for event cards or listings
-    const eventSelectors = [
-      '.EventCardstyle__StyledEventCard',
-      '[data-testid="event-card"]',
-      '.event-card',
-      '.event-item',
-      'article[class*="event"]',
-      'div[class*="event-card"]'
-    ];
-    
     let eventsFound = false;
     
-    for (const selector of eventSelectors) {
+    for (const selector of EVENT_SELECTORS) {
       const events = $(selector);
       
       if (events.length > 0) {
@@ -113,7 +116,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
           const title = $link.text().trim() || $link.find('*').text().trim();
           const fullUrl = href.startsWith('http') ? href : `https://www.stubhub.com${href}`;
           
-          if (title && title.length > 5) {
+          if (title && title.length > MIN_TITLE_LENGTH) {
             const parent = $link.parent();
             const price = parent.find('[class*="price"]').text().trim();
             const date = parent.find('[class*="date"], time').text().trim();
