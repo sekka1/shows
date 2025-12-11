@@ -115,8 +115,7 @@ class ShowTicketFinder:
         """
         try:
             payload = {
-                "text": message,
-                "mrkdwn": True
+                "text": message
             }
             
             response = requests.post(
