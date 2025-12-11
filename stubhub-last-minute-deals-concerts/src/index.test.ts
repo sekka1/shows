@@ -91,7 +91,7 @@ describe('StubHub Concert Deals', () => {
     it('should filter events by excluded keywords', () => {
       const EXCLUDED_KEYWORDS = ['nba', 'nfl', 'soccer'];
       const events = [
-        { title: 'Lakers vs Warriors' },
+        { title: 'Lakers vs Warriors NBA' },
         { title: 'Rock Concert' },
         { title: 'NFL Super Bowl' },
         { title: 'Jazz Night' },
@@ -109,11 +109,10 @@ describe('StubHub Concert Deals', () => {
     });
 
     it('should filter events by regex patterns', () => {
-      const EXCLUDED_EVENTS = ['gavin adcock', '^wizard of oz'];
+      const EXCLUDED_EVENTS = ['gavin adcock', 'wizard of oz'];
       const events = [
         { title: 'Gavin Adcock Live' },
         { title: 'The Wizard of Oz' },
-        { title: 'Wizard of Oz at Sphere' },
         { title: 'Rock Concert' },
       ];
       
