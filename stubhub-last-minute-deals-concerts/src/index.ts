@@ -540,8 +540,11 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
       headless: true
     });
     
+    // Set geolocation to Las Vegas to ensure we get Las Vegas events
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      geolocation: { longitude: -115.1398, latitude: 36.1699 }, // Las Vegas coordinates
+      permissions: ['geolocation']
     });
     
     const page = await context.newPage();
@@ -562,13 +565,13 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
       // No modal
     }
     
-    // Find and use the search box
-    console.log('Searching for Las Vegas concerts...\n');
+    // Find and use the search box - search for "concerts in Las Vegas, NV"
+    console.log('Searching for concerts in Las Vegas, NV...\n');
     const searchInput = page.locator('input[placeholder*="Search" i], input[type="search"]').first();
     
     if (await searchInput.count() > 0) {
       await searchInput.click();
-      await searchInput.fill('Las Vegas concerts');
+      await searchInput.fill('concerts in Las Vegas, NV');
       await page.waitForTimeout(1000);
       await page.keyboard.press('Enter');
       await page.waitForTimeout(5000); // Increased wait time
@@ -577,10 +580,13 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
       // Wait a bit more for prices to load dynamically
       await page.waitForTimeout(3000);
     } else {
-      // Fallback: navigate directly to Vegas concerts
-      console.log('Search not found, navigating directly...\n');
-      await page.goto('https://www.stubhub.com/concert-tickets/grouping/222?query=las%20vegas', { waitUntil: 'domcontentloaded', timeout: 60000 });
-      await page.waitForTimeout(5000);
+      // Fallback: try the discover/find events link
+      console.log('Search not found, trying alternative navigation...\n');
+      const discoverLink = page.locator('a[href*="discover"], a:has-text("Find Events")').first();
+      if (await discoverLink.count() > 0) {
+        await discoverLink.click();
+        await page.waitForTimeout(3000);
+      }
     }
     
     // Try to find event cards with multiple selectors
