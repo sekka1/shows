@@ -540,11 +540,8 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
       headless: true
     });
     
-    // Set geolocation to Las Vegas to ensure we get Las Vegas events
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      geolocation: { longitude: -115.1398, latitude: 36.1699 }, // Las Vegas coordinates
-      permissions: ['geolocation']
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
     
     const page = await context.newPage();
@@ -552,7 +549,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     // Start at StubHub homepage
     console.log('Navigating to StubHub homepage...\n');
     await page.goto('https://www.stubhub.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
     
     // Close any modal that might appear
     try {
@@ -565,29 +562,74 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
       // No modal
     }
     
-    // Find and use the search box - search for "concerts in Las Vegas, NV"
-    console.log('Searching for concerts in Las Vegas, NV...\n');
+    // Find and click on the search box to activate it
+    console.log('Setting location to Las Vegas...\n');
     const searchInput = page.locator('input[placeholder*="Search" i], input[type="search"]').first();
     
     if (await searchInput.count() > 0) {
       await searchInput.click();
-      await searchInput.fill('concerts in Las Vegas, NV');
       await page.waitForTimeout(1000);
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(5000); // Increased wait time
+      
+      // Type "Las Vegas" to search for the location
+      await searchInput.fill('Las Vegas');
+      await page.waitForTimeout(2000);
+      
+      // Look for location suggestions dropdown and click on Las Vegas, NV
+      const locationSuggestions = [
+        'button:has-text("Las Vegas, NV")',
+        'a:has-text("Las Vegas, NV")',
+        '[role="option"]:has-text("Las Vegas")',
+        'li:has-text("Las Vegas, NV")',
+        'div:has-text("Las Vegas, NV")'
+      ];
+      
+      let locationSelected = false;
+      for (const selector of locationSuggestions) {
+        const suggestion = page.locator(selector).first();
+        if (await suggestion.count() > 0) {
+          try {
+            await suggestion.click({ timeout: 2000 });
+            console.log('Selected Las Vegas, NV from suggestions\n');
+            locationSelected = true;
+            await page.waitForTimeout(2000);
+            break;
+          } catch (e) {
+            continue;
+          }
+        }
+      }
+      
+      if (!locationSelected) {
+        console.log('Location suggestion not found, searching for concerts directly...\n');
+        // Clear and search for concerts in Las Vegas
+        await searchInput.fill('');
+        await page.waitForTimeout(500);
+        await searchInput.fill('concerts Las Vegas');
+        await page.waitForTimeout(1000);
+        await page.keyboard.press('Enter');
+      } else {
+        // After selecting location, now search for concerts
+        console.log('Searching for concerts...\n');
+        await searchInput.fill('');
+        await page.waitForTimeout(500);
+        await searchInput.fill('concerts');
+        await page.waitForTimeout(1000);
+        await page.keyboard.press('Enter');
+      }
+      
+      await page.waitForTimeout(5000);
       console.log('Search completed\n');
       
-      // Wait a bit more for prices to load dynamically
+      // Wait for content to load
       await page.waitForTimeout(3000);
     } else {
-      // Fallback: try the discover/find events link
-      console.log('Search not found, trying alternative navigation...\n');
-      const discoverLink = page.locator('a[href*="discover"], a:has-text("Find Events")').first();
-      if (await discoverLink.count() > 0) {
-        await discoverLink.click();
-        await page.waitForTimeout(3000);
-      }
+      console.log('Search box not found, using direct navigation...\n');
+      await page.goto('https://www.stubhub.com/concert-tickets/grouping/222', { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(5000);
     }
+    
+    // Verify we're looking at Las Vegas events by checking the page content
+    console.log(`Current page URL: ${page.url()}\n`);
     
     // Try to find event cards with multiple selectors
     const selectors = [
@@ -712,6 +754,52 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
           }).filter(Boolean);
         });
         
+        // Validate that we're getting Las Vegas events
+        console.log('Validating event locations...\n');
+        const nonLasVegasEvents = eventLinks.filter(event => {
+          if (!event || !event.url) return false;
+          const urlLower = event.url.toLowerCase();
+          const venueLower = (event.venue || '').toLowerCase();
+          
+          // Check if URL or venue contains Las Vegas indicators
+          const hasLasVegasInUrl = urlLower.includes('las-vegas') || urlLower.includes('lasvegas');
+          const hasLasVegasInVenue = venueLower.includes('las vegas');
+          
+          // Also check for other major cities in the URL (indicates wrong location)
+          const hasOtherCity = 
+            urlLower.includes('san-francisco') || urlLower.includes('sanfrancisco') ||
+            urlLower.includes('new-york') || urlLower.includes('newyork') ||
+            urlLower.includes('los-angeles') || urlLower.includes('losangeles') ||
+            urlLower.includes('chicago') || urlLower.includes('boston') ||
+            urlLower.includes('seattle') || urlLower.includes('miami');
+          
+          return !hasLasVegasInUrl && !hasLasVegasInVenue || hasOtherCity;
+        });
+        
+        if (nonLasVegasEvents.length > 0) {
+          console.error('\n❌ ERROR: Found events that are NOT in Las Vegas!\n');
+          console.error('The scraper is detecting events from other cities. This indicates StubHub');
+          console.error('is showing results for a different location than Las Vegas.\n');
+          console.error('Sample non-Las Vegas events found:');
+          nonLasVegasEvents.slice(0, 3).forEach((event, idx) => {
+            if (event) {
+              console.error(`  ${idx + 1}. ${event.title}`);
+              console.error(`     Venue: ${event.venue || 'N/A'}`);
+              console.error(`     URL: ${event.url}`);
+            }
+          });
+          console.error(`\nTotal non-Las Vegas events: ${nonLasVegasEvents.length} of ${eventLinks.length}`);
+          console.error('Expected: All events should be in Las Vegas.\n');
+          
+          // Exit with error if more than 50% of events are not Las Vegas
+          if (nonLasVegasEvents.length > eventLinks.length * 0.5) {
+            await browser.close();
+            console.error('FATAL: Majority of events are not from Las Vegas. Exiting.\n');
+            process.exit(1);
+          }
+        } else {
+          console.log('✓ All events verified to be in Las Vegas\n');
+        }
         
         // Debug mode: output all events found before filtering
         if (DEBUG) {
