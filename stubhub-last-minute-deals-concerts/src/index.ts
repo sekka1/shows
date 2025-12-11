@@ -1,4 +1,10 @@
 import { chromium, Browser, Page } from 'playwright';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 interface ConcertDeal {
   title: string;
@@ -10,11 +16,22 @@ interface ConcertDeal {
   url: string;
 }
 
+interface DealWithStatus extends ConcertDeal {
+  status: 'new' | 'price_drop' | 'no_change' | 'price_increase';
+  previousPrice?: string;
+}
+
+interface StateFile {
+  lastRun: string;
+  deals: ConcertDeal[];
+}
+
 // Configuration constants
 const LOCATION = 'Las Vegas';
 const DAYS_AHEAD = 3;
 const TICKET_QUANTITY = 2;
 const DEBUG = false; // Set to true to output all events without filtering
+const ONE_TIME_RUN = false; // Set to false for cron mode (compares with previous state)
 
 /**
  * Available event categories for filtering:
@@ -63,7 +80,13 @@ const EXCLUDED_KEYWORDS = [
 const EXCLUDED_EVENTS: string[] = [
   'gavin adcock',
   '*wizard of oz*',
-  'discoshow'
+  'discoshow',
+  'Mat Franco',
+  'Stephen Wilson*',
+  'X Rocks',
+  '*Mad Apple*',
+  'Colin Cloud',
+  '*Zac Brown*'
 ];
 
 /**
@@ -78,6 +101,10 @@ const EXCLUDED_EVENTS: string[] = [
 const MIN_PRICE: number | null = 10; // Minimum price (e.g., 50 for $50)
 const MAX_PRICE: number | null = 100; // Maximum price (e.g., 500 for $500)
 
+// State file configuration
+const STATE_FILE_PATH = path.join(__dirname, '..', 'state.json');
+const OUTPUT_FILE_PATH = path.join(__dirname, '..', 'output.json');
+
 /**
  * Gets the end date for filtering (3 days from now)
  */
@@ -85,6 +112,142 @@ function getEndDate(): Date {
   const endDate = new Date();
   endDate.setDate(endDate.getDate() + DAYS_AHEAD);
   return endDate;
+}
+
+/**
+ * Loads the previous state from the state file
+ */
+function loadPreviousState(): StateFile | null {
+  try {
+    if (fs.existsSync(STATE_FILE_PATH)) {
+      const data = fs.readFileSync(STATE_FILE_PATH, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Error loading previous state:', error);
+  }
+  return null;
+}
+
+/**
+ * Saves the current state to the state file
+ */
+function saveState(deals: ConcertDeal[]): void {
+  try {
+    const state: StateFile = {
+      lastRun: new Date().toISOString(),
+      deals
+    };
+    fs.writeFileSync(STATE_FILE_PATH, JSON.stringify(state, null, 2));
+  } catch (error) {
+    console.error('Error saving state:', error);
+  }
+}
+
+/**
+ * Compares current deals with previous state and marks changes
+ */
+function compareWithPreviousState(currentDeals: ConcertDeal[], previousState: StateFile | null): DealWithStatus[] {
+  const dealsWithStatus: DealWithStatus[] = [];
+  
+  if (!previousState || previousState.deals.length === 0) {
+    // First run - all deals are new
+    return currentDeals.map(deal => ({
+      ...deal,
+      status: 'new' as const
+    }));
+  }
+  
+  // Create a map of previous deals by URL for quick lookup
+  const previousDealsMap = new Map<string, ConcertDeal>();
+  previousState.deals.forEach(deal => {
+    previousDealsMap.set(deal.url, deal);
+  });
+  
+  for (const currentDeal of currentDeals) {
+    const previousDeal = previousDealsMap.get(currentDeal.url);
+    
+    if (!previousDeal) {
+      // New deal
+      dealsWithStatus.push({
+        ...currentDeal,
+        status: 'new'
+      });
+    } else {
+      // Existing deal - compare prices
+      const currentPrice = currentDeal.prices.length > 0 
+        ? parseInt(currentDeal.prices[0].replace(/[$,]/g, ''))
+        : 0;
+      const previousPrice = previousDeal.prices.length > 0
+        ? parseInt(previousDeal.prices[0].replace(/[$,]/g, ''))
+        : 0;
+      
+      if (currentPrice === 0 || previousPrice === 0) {
+        // Can't compare prices
+        dealsWithStatus.push({
+          ...currentDeal,
+          status: 'no_change',
+          previousPrice: previousDeal.price
+        });
+      } else if (currentPrice < previousPrice) {
+        // Price drop
+        dealsWithStatus.push({
+          ...currentDeal,
+          status: 'price_drop',
+          previousPrice: previousDeal.price
+        });
+      } else if (currentPrice > previousPrice) {
+        // Price increase
+        dealsWithStatus.push({
+          ...currentDeal,
+          status: 'price_increase',
+          previousPrice: previousDeal.price
+        });
+      } else {
+        // No change
+        dealsWithStatus.push({
+          ...currentDeal,
+          status: 'no_change',
+          previousPrice: previousDeal.price
+        });
+      }
+    }
+  }
+  
+  return dealsWithStatus;
+}
+
+/**
+ * Saves output in JSON format for cron mode
+ */
+function saveOutputJson(deals: DealWithStatus[]): void {
+  try {
+    const output = {
+      timestamp: new Date().toISOString(),
+      location: LOCATION,
+      daysAhead: DAYS_AHEAD,
+      ticketQuantity: TICKET_QUANTITY,
+      totalDeals: deals.length,
+      newDeals: deals.filter(d => d.status === 'new').length,
+      priceDrops: deals.filter(d => d.status === 'price_drop').length,
+      deals: deals.map(deal => ({
+        title: deal.title,
+        venue: deal.venue,
+        date: deal.date,
+        time: deal.time,
+        currentPrice: deal.price,
+        previousPrice: deal.previousPrice,
+        allPrices: deal.prices,
+        url: deal.url,
+        status: deal.status
+      }))
+    };
+    
+    fs.writeFileSync(OUTPUT_FILE_PATH, JSON.stringify(output, null, 2));
+    console.log(`\n✓ Output saved to: ${OUTPUT_FILE_PATH}`);
+  } catch (error) {
+    console.error('Error saving output:', error);
+  }
 }
 
 /**
@@ -650,12 +813,97 @@ function displayDeals(deals: ConcertDeal[]): void {
 }
 
 /**
+ * Displays deals with status information (for cron mode)
+ */
+function displayDealsWithStatus(deals: DealWithStatus[]): void {
+  if (deals.length === 0) {
+    console.log('No changes detected.');
+    return;
+  }
+  
+  const newDeals = deals.filter(d => d.status === 'new');
+  const priceDrops = deals.filter(d => d.status === 'price_drop');
+  const noChanges = deals.filter(d => d.status === 'no_change');
+  const priceIncreases = deals.filter(d => d.status === 'price_increase');
+  
+  console.log('═══════════════════════════════════════════════════════════════');
+  console.log(`  DEAL CHANGES FOR ${LOCATION.toUpperCase()}`);
+  console.log('═══════════════════════════════════════════════════════════════\n');
+  
+  console.log(`Summary:`);
+  console.log(`  New Deals: ${newDeals.length}`);
+  console.log(`  Price Drops: ${priceDrops.length}`);
+  console.log(`  No Changes: ${noChanges.length}`);
+  console.log(`  Price Increases: ${priceIncreases.length}`);
+  console.log(`  Total: ${deals.length}\n`);
+  
+  if (newDeals.length > 0) {
+    console.log('🆕 NEW DEALS:');
+    console.log('─────────────────────────────────────────────────────────────\n');
+    newDeals.forEach((deal, index) => {
+      console.log(`${index + 1}. ${deal.title}`);
+      console.log(`   Venue: ${deal.venue}`);
+      console.log(`   Date: ${deal.date}${deal.time ? ' ' + deal.time : ''}`);
+      console.log(`   Price: ${deal.price}`);
+      console.log(`   URL: ${deal.url}`);
+      console.log('');
+    });
+  }
+  
+  if (priceDrops.length > 0) {
+    console.log('📉 PRICE DROPS:');
+    console.log('─────────────────────────────────────────────────────────────\n');
+    priceDrops.forEach((deal, index) => {
+      console.log(`${index + 1}. ${deal.title}`);
+      console.log(`   Venue: ${deal.venue}`);
+      console.log(`   Date: ${deal.date}${deal.time ? ' ' + deal.time : ''}`);
+      console.log(`   Previous: ${deal.previousPrice} → Current: ${deal.price}`);
+      console.log(`   URL: ${deal.url}`);
+      console.log('');
+    });
+  }
+  
+  console.log('═══════════════════════════════════════════════════════════════\n');
+}
+
+/**
  * Main function
  */
 async function main(): Promise<void> {
   try {
+    console.log(`Mode: ${ONE_TIME_RUN ? 'ONE-TIME RUN' : 'CRON MODE'}\n`);
+    
     const deals = await fetchLastMinuteConcertDeals();
-    displayDeals(deals);
+    
+    if (ONE_TIME_RUN) {
+      // One-time run: display human-readable output
+      displayDeals(deals);
+    } else {
+      // Cron mode: compare with previous state
+      const previousState = loadPreviousState();
+      const dealsWithStatus = compareWithPreviousState(deals, previousState);
+      
+      // Filter to only show new deals and price drops
+      const noteworthyDeals = dealsWithStatus.filter(
+        d => d.status === 'new' || d.status === 'price_drop'
+      );
+      
+      // Display summary
+      displayDealsWithStatus(dealsWithStatus);
+      
+      // Save output as JSON
+      saveOutputJson(dealsWithStatus);
+      
+      // Save current state for next run
+      saveState(deals);
+      
+      // Log noteworthy deals count
+      if (noteworthyDeals.length > 0) {
+        console.log(`✓ ${noteworthyDeals.length} noteworthy deal(s) found (new or price drops)`);
+      } else {
+        console.log('ℹ No new deals or price drops detected');
+      }
+    }
   } catch (error) {
     console.error('Failed to fetch last minute concert deals');
     process.exit(1);
