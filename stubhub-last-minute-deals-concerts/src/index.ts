@@ -33,6 +33,11 @@ const TICKET_QUANTITY = 2;
 const DEBUG = false; // Set to true to output all events without filtering
 const ONE_TIME_RUN = false; // Set to false for cron mode (compares with previous state)
 
+// Slack configuration
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || '';
+const SLACK_CHANNEL = process.env.SLACK_CHANNEL || '';
+const ENABLE_SLACK = !!SLACK_WEBHOOK_URL; // Enabled if webhook URL is provided
+
 /**
  * Available event categories for filtering:
  * 
@@ -215,6 +220,113 @@ function compareWithPreviousState(currentDeals: ConcertDeal[], previousState: St
   }
   
   return dealsWithStatus;
+}
+
+/**
+ * Posts deals to Slack channel
+ */
+async function postToSlack(deals: DealWithStatus[]): Promise<void> {
+  if (!ENABLE_SLACK || deals.length === 0) {
+    return;
+  }
+
+  try {
+    const newDeals = deals.filter(d => d.status === 'new');
+    const priceDrops = deals.filter(d => d.status === 'price_drop');
+    
+    if (newDeals.length === 0 && priceDrops.length === 0) {
+      console.log('ℹ No new deals or price drops to post to Slack');
+      return;
+    }
+
+    const blocks: any[] = [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: `🎟️ ${LOCATION} Concert Deals`,
+          emoji: true
+        }
+      },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: `Updated: <!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toLocaleString()}> | New: ${newDeals.length} | Price Drops: ${priceDrops.length}`
+          }
+        ]
+      }
+    ];
+
+    // Add new deals
+    if (newDeals.length > 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*🆕 New Deals*'
+        }
+      });
+
+      for (const deal of newDeals) {
+        blocks.push(
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `*<${deal.url}|${deal.title}>*\n📍 ${deal.venue}\n📅 ${deal.date}\n💰 *${deal.price}* for ${TICKET_QUANTITY} tickets`
+            }
+          },
+          { type: 'divider' }
+        );
+      }
+    }
+
+    // Add price drops
+    if (priceDrops.length > 0) {
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*📉 Price Drops*'
+        }
+      });
+
+      for (const deal of priceDrops) {
+        blocks.push(
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `*<${deal.url}|${deal.title}>*\n📍 ${deal.venue}\n📅 ${deal.date}\n💰 ~${deal.previousPrice}~ → *${deal.price}* for ${TICKET_QUANTITY} tickets`
+            }
+          },
+          { type: 'divider' }
+        );
+      }
+    }
+
+    // Send to Slack
+    const response = await fetch(SLACK_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        channel: SLACK_CHANNEL,
+        blocks
+      })
+    });
+
+    if (response.ok) {
+      console.log(`✓ Posted ${newDeals.length + priceDrops.length} deal(s) to Slack`);
+    } else {
+      console.error(`✗ Failed to post to Slack: ${response.status} ${response.statusText}`);
+    }
+  } catch (error) {
+    console.error('Error posting to Slack:', error);
+  }
 }
 
 /**
@@ -890,6 +1002,9 @@ async function main(): Promise<void> {
       
       // Display summary
       displayDealsWithStatus(dealsWithStatus);
+      
+      // Post to Slack (only new deals and price drops)
+      await postToSlack(noteworthyDeals);
       
       // Save output as JSON
       saveOutputJson(dealsWithStatus);
