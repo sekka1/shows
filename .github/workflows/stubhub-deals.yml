@@ -1,0 +1,60 @@
+name: StubHub Last Minute Deals
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  fetch-deals:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        working-directory: ./stubhub-last-minute-deals-concerts
+        run: npm ci
+      
+      - name: Install Playwright browsers
+        working-directory: ./stubhub-last-minute-deals-concerts
+        run: npx playwright install chromium --with-deps
+      
+      - name: Restore state from previous run
+        uses: actions/cache/restore@v3
+        with:
+          path: stubhub-last-minute-deals-concerts/state.json
+          key: stubhub-state-${{ github.run_id }}
+          restore-keys: |
+            stubhub-state-
+      
+      - name: Run StubHub deals scraper
+        working-directory: ./stubhub-last-minute-deals-concerts
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+        run: npm run dev
+      
+      - name: Save state for next run
+        uses: actions/cache/save@v3
+        if: always()
+        with:
+          path: stubhub-last-minute-deals-concerts/state.json
+          key: stubhub-state-${{ github.run_id }}
+      
+      - name: Upload output artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stubhub-deals-output-${{ github.run_number }}
+          path: |
+            stubhub-last-minute-deals-concerts/output.json
+            stubhub-last-minute-deals-concerts/state.json
+          retention-days: 7
