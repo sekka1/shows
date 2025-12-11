@@ -67,6 +67,18 @@ const EXCLUDED_EVENTS: string[] = [
 ];
 
 /**
+ * Price range filter (for 2 tickets, as specified by TICKET_QUANTITY)
+ * Set to null to disable filtering
+ * 
+ * Examples:
+ * - MIN_PRICE: 50, MAX_PRICE: 500 - only show events with cheapest price between $50-$500
+ * - MIN_PRICE: null, MAX_PRICE: 200 - only show events under $200
+ * - MIN_PRICE: 100, MAX_PRICE: null - only show events over $100
+ */
+const MIN_PRICE: number | null = 10; // Minimum price (e.g., 50 for $50)
+const MAX_PRICE: number | null = 100; // Maximum price (e.g., 500 for $500)
+
+/**
  * Gets the end date for filtering (3 days from now)
  */
 function getEndDate(): Date {
@@ -551,6 +563,41 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
         // Update the price field with the cheapest price if available
         if (prices.length > 0) {
           deal.price = prices[0];
+        }
+      }
+      
+      // Apply price range filtering (skip in debug mode)
+      if (!DEBUG && (MIN_PRICE !== null || MAX_PRICE !== null)) {
+        const originalCount = deals.length;
+        const filteredDeals = deals.filter(deal => {
+          if (deal.prices.length === 0) {
+            return false; // Exclude if no price information
+          }
+          
+          // Get the cheapest price (first in the sorted array)
+          const cheapestPrice = deal.prices[0];
+          const numericPrice = parseInt(cheapestPrice.replace(/[$,]/g, ''));
+          
+          // Check minimum price
+          if (MIN_PRICE !== null && numericPrice < MIN_PRICE) {
+            return false;
+          }
+          
+          // Check maximum price
+          if (MAX_PRICE !== null && numericPrice > MAX_PRICE) {
+            return false;
+          }
+          
+          return true;
+        });
+        
+        // Update deals array
+        deals.length = 0;
+        deals.push(...filteredDeals);
+        
+        const filteredCount = originalCount - deals.length;
+        if (filteredCount > 0) {
+          console.log(`\nFiltered out ${filteredCount} event(s) based on price range (${MIN_PRICE ? `$${MIN_PRICE}` : 'any'} - ${MAX_PRICE ? `$${MAX_PRICE}` : 'any'})\n`);
         }
       }
     }
