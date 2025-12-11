@@ -1,0 +1,39 @@
+name: Test StubHub Last Minute Deals
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './stubhub-last-minute-deals-concerts/package-lock.json'
+      
+      - name: Install dependencies
+        working-directory: ./stubhub-last-minute-deals-concerts
+        run: npm ci
+      
+      - name: Run linting
+        working-directory: ./stubhub-last-minute-deals-concerts
+        run: npm run lint
+      
+      - name: Run tests
+        working-directory: ./stubhub-last-minute-deals-concerts
+        run: npm test
+      
+      - name: Build project
+        working-directory: ./stubhub-last-minute-deals-concerts
+        run: npm run build
