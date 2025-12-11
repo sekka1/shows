@@ -143,7 +143,7 @@ describe('StubHub Concert Deals', () => {
       const previousState = null;
       
       // Simulate first run logic
-      const isFirstRun = !previousState || previousState.deals?.length === 0;
+      const isFirstRun = previousState === null;
       
       expect(isFirstRun).toBe(true);
       expect(currentDeals.length).toBe(2);
