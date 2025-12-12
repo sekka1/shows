@@ -2,8 +2,8 @@ name: StubHub Last Minute Deals - kees
 
 on:
   schedule:
-    # Run every 59 minutes
-    - cron: '*/59 * * * *'
+    # Run once daily at 9 AM UTC (1 AM PST / 4 AM EST)
+    - cron: '0 9 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
