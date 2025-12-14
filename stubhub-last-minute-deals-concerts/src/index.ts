@@ -101,7 +101,8 @@ const EXCLUDED_EVENTS: string[] = [
   'Blue Man Group',
   'Jack Jones Classic',
   'Wayne Newton',
-  'Barry Manilow'
+  'Barry Manilow',
+  'A Drag Queen Christmas'
 ];
 
 /**
