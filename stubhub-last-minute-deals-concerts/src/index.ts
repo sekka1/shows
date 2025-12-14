@@ -85,6 +85,7 @@ const EXCLUDED_KEYWORDS = [
 const EXCLUDED_EVENTS: string[] = [
   'gavin adcock',
   '*wizard of oz*',
+  'The Wizard of Oz at Sphere',
   'discoshow',
   'Mat Franco',
   'Stephen Wilson*',
@@ -95,6 +96,7 @@ const EXCLUDED_EVENTS: string[] = [
   'Lindsey Stirling',
   'Dane Cook',
   '*Nutcracker*',
+  'George Balanchine\'s The Nutcracker',
   'Comedy Cellar',
   'Enchant Christmas',
   'All Shook Up',
@@ -102,7 +104,14 @@ const EXCLUDED_EVENTS: string[] = [
   'Jack Jones Classic',
   'Wayne Newton',
   'Barry Manilow',
-  'A Drag Queen Christmas'
+  'A Drag Queen Christmas',
+  'Blue October',
+  'Fantasy',
+  'FLY LINQ Zipline',
+  'High Roller Wheel at The LINQ',
+  'Eiffel Tower Viewing Deck',
+  'Real Bodies',
+  'Queen Selena'
 ];
 
 /**
@@ -114,8 +123,8 @@ const EXCLUDED_EVENTS: string[] = [
  * - MIN_PRICE: null, MAX_PRICE: 200 - only show events under $200
  * - MIN_PRICE: 100, MAX_PRICE: null - only show events over $100
  */
-const MIN_PRICE: number | null = 10; // Minimum price (e.g., 50 for $50)
-const MAX_PRICE: number | null = 100; // Maximum price (e.g., 500 for $500)
+const MIN_PRICE: number | null = 1; // Minimum price (e.g., 50 for $50)
+const MAX_PRICE: number | null = 90; // Maximum price (e.g., 500 for $500)
 
 // State file configuration
 const STATE_FILE_PATH = path.join(__dirname, '..', 'state.json');
@@ -506,7 +515,7 @@ async function getPricesForEvent(page: Page, eventUrl: string): Promise<string[]
         .map(p => p.original)
         .slice(0, 3);
       
-      console.log(`  Found ${sortedPrices.length} prices\n`);
+      console.log(`  Found ${sortedPrices.length} prices: ${sortedPrices.join(', ')}\n`);
       return sortedPrices;
     }
     
