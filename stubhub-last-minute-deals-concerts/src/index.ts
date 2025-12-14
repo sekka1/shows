@@ -91,7 +91,17 @@ const EXCLUDED_EVENTS: string[] = [
   'X Rocks',
   '*Mad Apple*',
   'Colin Cloud',
-  '*Zac Brown*'
+  '*Zac Brown*',
+  'Lindsey Stirling',
+  'Dane Cook',
+  '*Nutcracker*',
+  'Comedy Cellar',
+  'Enchant Christmas',
+  'All Shook Up',
+  'Blue Man Group',
+  'Jack Jones Classic',
+  'Wayne Newton',
+  'Barry Manilow'
 ];
 
 /**
