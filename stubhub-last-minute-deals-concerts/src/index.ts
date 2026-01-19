@@ -557,9 +557,14 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     console.log(`Ticket quantity: ${TICKET_QUANTITY}\n`);
     
     // Create screenshots directory for debugging
-    if (!fs.existsSync('screenshots')) {
-      fs.mkdirSync('screenshots');
-      console.log('Created screenshots directory for debugging\n');
+    const screenshotsDir = path.join(process.cwd(), 'screenshots');
+    try {
+      if (!fs.existsSync(screenshotsDir)) {
+        fs.mkdirSync(screenshotsDir, { recursive: true });
+        console.log('Created screenshots directory for debugging\n');
+      }
+    } catch (error) {
+      console.warn('Could not create screenshots directory:', error);
     }
     
     // Launch browser
@@ -589,10 +594,14 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     console.log('Step 2: Closing any modals...');
     try {
       const closeButton = page.locator('button[aria-label*="close" i], button:has-text("×")').first();
-      if (await closeButton.count() > 0 && await closeButton.isVisible({ timeout: 2000 })) {
-        await closeButton.click({ timeout: 2000 });
-        await page.waitForTimeout(1000);
-        console.log('Closed modal\n');
+      if (await closeButton.count() > 0) {
+        if (await closeButton.isVisible({ timeout: 1000 })) {
+          await closeButton.click({ timeout: 2000 });
+          await page.waitForTimeout(1000);
+          console.log('Closed modal\n');
+        } else {
+          console.log('No modal to close\n');
+        }
       } else {
         console.log('No modal to close\n');
       }
@@ -612,9 +621,10 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
       console.log('Search box found and focused\n');
     } catch (error) {
       console.error('Failed to find search box');
+      const debugHtmlPath = path.join(process.cwd(), 'debug-page-no-search.html');
       const html = await page.content();
-      fs.writeFileSync('debug-page-no-search.html', html);
-      console.log('Saved page HTML to debug-page-no-search.html');
+      fs.writeFileSync(debugHtmlPath, html);
+      console.log(`Saved page HTML to ${debugHtmlPath}`);
       throw error;
     }
     
@@ -641,7 +651,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
       if (await suggestion.count() > 0) {
         try {
           await suggestion.waitFor({ state: 'visible', timeout: 5000 });
-          await suggestion.click();
+          await suggestion.click({ timeout: 3000 });
           console.log('Selected Las Vegas, NV from suggestions');
           locationSelected = true;
           await page.waitForTimeout(3000);
