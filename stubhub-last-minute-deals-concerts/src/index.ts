@@ -586,7 +586,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     console.log('Step 1: Navigating to StubHub homepage...');
     await page.goto('https://www.stubhub.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(3000);
-    await page.screenshot({ path: 'screenshots/01-homepage.png' });
+    await page.screenshot({ path: path.join(screenshotsDir, '01-homepage.png') });
     console.log(`Current URL: ${page.url()}`);
     console.log(`Page title: ${await page.title()}\n`);
     
@@ -617,7 +617,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
       await searchInput.waitFor({ state: 'visible', timeout: 10000 });
       await searchInput.click();
       await page.waitForTimeout(2000);
-      await page.screenshot({ path: 'screenshots/02-search-focused.png' });
+      await page.screenshot({ path: path.join(screenshotsDir, '02-search-focused.png') });
       console.log('Search box found and focused\n');
     } catch (error) {
       console.error('Failed to find search box');
@@ -632,7 +632,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     console.log('Step 4: Typing "Las Vegas"...');
     await searchInput.type('Las Vegas', { delay: 100 }); // Type with 100ms delay between chars
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: 'screenshots/03-city-typed.png' });
+    await page.screenshot({ path: path.join(screenshotsDir, '03-city-typed.png') });
     console.log('Typed "Las Vegas"\n');
     
     // Step 5: Wait for and click location suggestion
@@ -655,7 +655,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
           console.log('Selected Las Vegas, NV from suggestions');
           locationSelected = true;
           await page.waitForTimeout(3000);
-          await page.screenshot({ path: 'screenshots/04-location-selected.png' });
+          await page.screenshot({ path: path.join(screenshotsDir, '04-location-selected.png') });
           console.log(`Current URL: ${page.url()}\n`);
           break;
         } catch (e) {
@@ -666,7 +666,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     
     if (!locationSelected) {
       console.log('Location suggestion not found, will try search directly\n');
-      await page.screenshot({ path: 'screenshots/04-no-location-suggestion.png' });
+      await page.screenshot({ path: path.join(screenshotsDir, '04-no-location-suggestion.png') });
     }
     
     // Step 6: Search for concerts
@@ -677,14 +677,14 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     await page.waitForTimeout(500);
     await searchInput.type('concerts', { delay: 100 });
     await page.waitForTimeout(2000);
-    await page.screenshot({ path: 'screenshots/05-concerts-typed.png' });
+    await page.screenshot({ path: path.join(screenshotsDir, '05-concerts-typed.png') });
     console.log('Typed "concerts"\n');
     
     // Step 7: Press Enter to search
     console.log('Step 7: Pressing Enter to search...');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(5000);
-    await page.screenshot({ path: 'screenshots/06-results-page.png' });
+    await page.screenshot({ path: path.join(screenshotsDir, '06-results-page.png') });
     
     console.log(`Final URL: ${page.url()}`);
     console.log(`Page Title: ${await page.title()}\n`);
