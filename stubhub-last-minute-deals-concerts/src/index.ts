@@ -556,6 +556,12 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     console.log(`Date range: Today through ${getEndDate().toLocaleDateString()}`);
     console.log(`Ticket quantity: ${TICKET_QUANTITY}\n`);
     
+    // Create screenshots directory for debugging
+    if (!fs.existsSync('screenshots')) {
+      fs.mkdirSync('screenshots');
+      console.log('Created screenshots directory for debugging\n');
+    }
+    
     // Launch browser
     browser = await chromium.launch({
       headless: true
@@ -571,90 +577,107 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     
     const page = await context.newPage();
     
-    // Start at StubHub homepage
-    console.log('Navigating to StubHub homepage...\n');
+    // Step 1: Go to StubHub homepage
+    console.log('Step 1: Navigating to StubHub homepage...');
     await page.goto('https://www.stubhub.com/', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForTimeout(3000);
+    await page.screenshot({ path: 'screenshots/01-homepage.png' });
+    console.log(`Current URL: ${page.url()}`);
+    console.log(`Page title: ${await page.title()}\n`);
     
-    // Close any modal that might appear
+    // Step 2: Close any modals
+    console.log('Step 2: Closing any modals...');
     try {
       const closeButton = page.locator('button[aria-label*="close" i], button:has-text("×")').first();
-      if (await closeButton.count() > 0 && await closeButton.isVisible()) {
+      if (await closeButton.count() > 0 && await closeButton.isVisible({ timeout: 2000 })) {
         await closeButton.click({ timeout: 2000 });
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(1000);
+        console.log('Closed modal\n');
+      } else {
+        console.log('No modal to close\n');
       }
     } catch (e) {
-      // No modal
+      console.log('No modal to close\n');
     }
     
-    // Find and click on the search box to activate it
-    console.log('Setting location to Las Vegas...\n');
+    // Step 3: Find and focus search box
+    console.log('Step 3: Finding search box...');
     const searchInput = page.locator('input[placeholder*="Search" i], input[type="search"]').first();
     
-    if (await searchInput.count() > 0) {
+    try {
+      await searchInput.waitFor({ state: 'visible', timeout: 10000 });
       await searchInput.click();
-      await page.waitForTimeout(1000);
-      
-      // Type "Las Vegas" to search for the location
-      await searchInput.fill('Las Vegas');
       await page.waitForTimeout(2000);
-      
-      // Look for location suggestions dropdown and click on Las Vegas, NV
-      const locationSuggestions = [
-        'button:has-text("Las Vegas, NV")',
-        'a:has-text("Las Vegas, NV")',
-        '[role="option"]:has-text("Las Vegas")',
-        'li:has-text("Las Vegas, NV")',
-        'div:has-text("Las Vegas, NV")'
-      ];
-      
-      let locationSelected = false;
-      for (const selector of locationSuggestions) {
-        const suggestion = page.locator(selector).first();
-        if (await suggestion.count() > 0) {
-          try {
-            await suggestion.click({ timeout: 2000 });
-            console.log('Selected Las Vegas, NV from suggestions\n');
-            locationSelected = true;
-            await page.waitForTimeout(2000);
-            break;
-          } catch (e) {
-            continue;
-          }
-        }
-      }
-      
-      if (!locationSelected) {
-        console.log('Location suggestion not found, searching for concerts directly...\n');
-        // Clear and search for concerts in Las Vegas
-        await searchInput.fill('');
-        await page.waitForTimeout(500);
-        await searchInput.fill('concerts Las Vegas');
-        await page.waitForTimeout(1000);
-        await page.keyboard.press('Enter');
-      } else {
-        // After selecting location, now search for concerts
-        console.log('Searching for concerts...\n');
-        await searchInput.fill('');
-        await page.waitForTimeout(500);
-        await searchInput.fill('concerts');
-        await page.waitForTimeout(1000);
-        await page.keyboard.press('Enter');
-      }
-      
-      await page.waitForTimeout(5000);
-      console.log('Search completed\n');
-      
-      // Wait for content to load
-      await page.waitForTimeout(3000);
-    } else {
-      console.log('Search box not found, using direct navigation...\n');
-      await page.goto('https://www.stubhub.com/concert-tickets/grouping/222', { waitUntil: 'domcontentloaded', timeout: 60000 });
-      await page.waitForTimeout(5000);
+      await page.screenshot({ path: 'screenshots/02-search-focused.png' });
+      console.log('Search box found and focused\n');
+    } catch (error) {
+      console.error('Failed to find search box');
+      const html = await page.content();
+      fs.writeFileSync('debug-page-no-search.html', html);
+      console.log('Saved page HTML to debug-page-no-search.html');
+      throw error;
     }
     
-    // Verify we're looking at Las Vegas events by checking the page content
-    console.log(`Current page URL: ${page.url()}\n`);
+    // Step 4: Type city name slowly (like a human)
+    console.log('Step 4: Typing "Las Vegas"...');
+    await searchInput.type('Las Vegas', { delay: 100 }); // Type with 100ms delay between chars
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: 'screenshots/03-city-typed.png' });
+    console.log('Typed "Las Vegas"\n');
+    
+    // Step 5: Wait for and click location suggestion
+    console.log('Step 5: Selecting Las Vegas from suggestions...');
+    const locationSuggestions = [
+      'button:has-text("Las Vegas, NV")',
+      'a:has-text("Las Vegas, NV")',
+      '[role="option"]:has-text("Las Vegas")',
+      'li:has-text("Las Vegas, NV")',
+      'div[role="button"]:has-text("Las Vegas")'
+    ];
+    
+    let locationSelected = false;
+    for (const selector of locationSuggestions) {
+      const suggestion = page.locator(selector).first();
+      if (await suggestion.count() > 0) {
+        try {
+          await suggestion.waitFor({ state: 'visible', timeout: 5000 });
+          await suggestion.click();
+          console.log('Selected Las Vegas, NV from suggestions');
+          locationSelected = true;
+          await page.waitForTimeout(3000);
+          await page.screenshot({ path: 'screenshots/04-location-selected.png' });
+          console.log(`Current URL: ${page.url()}\n`);
+          break;
+        } catch (e) {
+          continue;
+        }
+      }
+    }
+    
+    if (!locationSelected) {
+      console.log('Location suggestion not found, will try search directly\n');
+      await page.screenshot({ path: 'screenshots/04-no-location-suggestion.png' });
+    }
+    
+    // Step 6: Search for concerts
+    console.log('Step 6: Searching for concerts...');
+    await searchInput.click();
+    await page.waitForTimeout(500);
+    await searchInput.fill(''); // Clear
+    await page.waitForTimeout(500);
+    await searchInput.type('concerts', { delay: 100 });
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: 'screenshots/05-concerts-typed.png' });
+    console.log('Typed "concerts"\n');
+    
+    // Step 7: Press Enter to search
+    console.log('Step 7: Pressing Enter to search...');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(5000);
+    await page.screenshot({ path: 'screenshots/06-results-page.png' });
+    
+    console.log(`Final URL: ${page.url()}`);
+    console.log(`Page Title: ${await page.title()}\n`);
     
     // Try to find event cards with multiple selectors
     const selectors = [

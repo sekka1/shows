@@ -26,3 +26,7 @@ Thumbs.db
 videos/
 *.webm
 *.mp4
+
+# Debug artifacts
+screenshots/
+debug-*.html
