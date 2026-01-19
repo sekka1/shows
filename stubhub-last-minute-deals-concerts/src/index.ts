@@ -1003,6 +1003,7 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
   } finally {
     if (browser) {
       // Wait for video to be saved before closing
+      // Note: page.video().path() waits for video to finish writing to disk
       if (ENABLE_VIDEO === 'true') {
         try {
           const videoPath = await browser.contexts()?.[0]?.pages()?.[0]?.video()?.path();
