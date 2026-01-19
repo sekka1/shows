@@ -58,6 +58,22 @@ jobs:
           path: stubhub-last-minute-deals-concerts/videos/
           retention-days: 7
       
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: stubhub-last-minute-deals-concerts/screenshots/
+          retention-days: 7
+      
+      - name: Upload debug HTML
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-html
+          path: stubhub-last-minute-deals-concerts/debug-*.html
+          retention-days: 7
+      
       - name: Upload output
         if: always()
         uses: actions/upload-artifact@v4
