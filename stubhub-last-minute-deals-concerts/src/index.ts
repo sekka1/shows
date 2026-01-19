@@ -30,8 +30,9 @@ interface StateFile {
 const LOCATION = 'Las Vegas';
 const DAYS_AHEAD = 3;
 const TICKET_QUANTITY = 2;
-const DEBUG = false; // Set to true to output all events without filtering
-const ONE_TIME_RUN = false; // Set to false for cron mode (compares with previous state)
+const DEBUG = process.env.DEBUG === 'true' || false; // Set to true to output all events without filtering
+const ONE_TIME_RUN = process.env.ONE_TIME_RUN === 'true' || false; // Set to false for cron mode (compares with previous state)
+const ENABLE_VIDEO = process.env.ENABLE_VIDEO || 'true'; // Enable video recording of browser sessions
 
 // Slack configuration
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || '';
@@ -561,7 +562,11 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     });
     
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      recordVideo: ENABLE_VIDEO === 'true' ? {
+        dir: 'videos/',
+        size: { width: 1280, height: 720 }
+      } : undefined
     });
     
     const page = await context.newPage();
@@ -997,6 +1002,21 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
     throw error;
   } finally {
     if (browser) {
+      // Wait for video to be saved before closing
+      if (ENABLE_VIDEO === 'true') {
+        try {
+          const pages = await browser.contexts()[0]?.pages();
+          if (pages && pages.length > 0) {
+            const page = pages[0];
+            const videoPath = await page.video()?.path();
+            if (videoPath) {
+              console.log(`Video saved to: ${videoPath}`);
+            }
+          }
+        } catch (videoError) {
+          console.error('Error saving video:', videoError);
+        }
+      }
       await browser.close();
     }
   }

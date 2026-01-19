@@ -1,0 +1,67 @@
+name: StubHub Scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_video:
+        description: 'Enable video recording'
+        required: false
+        default: 'true'
+        type: boolean
+      debug_mode:
+        description: 'Enable debug mode'
+        required: false
+        default: 'false'
+        type: boolean
+      one_time_run:
+        description: 'One time run mode'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: stubhub-last-minute-deals-concerts/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: stubhub-last-minute-deals-concerts
+        run: npm ci
+      
+      - name: Install Playwright browsers
+        working-directory: stubhub-last-minute-deals-concerts
+        run: npx playwright install --with-deps chromium
+      
+      - name: Run scraper
+        working-directory: stubhub-last-minute-deals-concerts
+        env:
+          ENABLE_VIDEO: ${{ inputs.enable_video }}
+          DEBUG: ${{ inputs.debug_mode }}
+          ONE_TIME_RUN: ${{ inputs.one_time_run }}
+        run: npm run dev
+      
+      - name: Upload videos
+        if: always() && inputs.enable_video
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-videos
+          path: stubhub-last-minute-deals-concerts/videos/
+          retention-days: 7
+      
+      - name: Upload output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-output
+          path: stubhub-last-minute-deals-concerts/output.json
+          retention-days: 7
