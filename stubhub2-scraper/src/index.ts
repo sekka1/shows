@@ -117,10 +117,9 @@ async function runScraper(): Promise<void> {
       await page.waitForTimeout(2000);
     }
     
-    // Close the browser
+    // Close the browser context
     console.log('\nClosing browser...');
     await context.close();
-    await browser.close();
     
     // Wait for video file to be saved
     if (ENABLE_VIDEO) {
@@ -143,6 +142,7 @@ async function runScraper(): Promise<void> {
     console.error(error);
     throw error;
   } finally {
+    // Close browser in finally block to ensure cleanup even on errors
     if (browser) {
       await browser.close();
     }
