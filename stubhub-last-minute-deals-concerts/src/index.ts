@@ -30,8 +30,8 @@ interface StateFile {
 const LOCATION = 'Las Vegas';
 const DAYS_AHEAD = 3;
 const TICKET_QUANTITY = 2;
-const DEBUG = process.env.DEBUG === 'true' || false; // Set to true to output all events without filtering
-const ONE_TIME_RUN = process.env.ONE_TIME_RUN === 'true' || false; // Set to false for cron mode (compares with previous state)
+const DEBUG = process.env.DEBUG === 'true'; // Set to true to output all events without filtering
+const ONE_TIME_RUN = process.env.ONE_TIME_RUN === 'true'; // Set to false for cron mode (compares with previous state)
 const ENABLE_VIDEO = process.env.ENABLE_VIDEO || 'true'; // Enable video recording of browser sessions
 
 // Slack configuration
@@ -1005,12 +1005,15 @@ async function fetchLastMinuteConcertDeals(): Promise<ConcertDeal[]> {
       // Wait for video to be saved before closing
       if (ENABLE_VIDEO === 'true') {
         try {
-          const pages = await browser.contexts()[0]?.pages();
-          if (pages && pages.length > 0) {
-            const page = pages[0];
-            const videoPath = await page.video()?.path();
-            if (videoPath) {
-              console.log(`Video saved to: ${videoPath}`);
+          const contexts = browser.contexts();
+          if (contexts && contexts.length > 0) {
+            const pages = contexts[0].pages();
+            if (pages && pages.length > 0) {
+              const page = pages[0];
+              const videoPath = await page.video()?.path();
+              if (videoPath) {
+                console.log(`Video saved to: ${videoPath}`);
+              }
             }
           }
         } catch (videoError) {
