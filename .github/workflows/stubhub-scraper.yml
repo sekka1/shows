@@ -45,9 +45,9 @@ jobs:
       - name: Run scraper
         working-directory: stubhub-last-minute-deals-concerts
         env:
-          ENABLE_VIDEO: ${{ inputs.enable_video }}
-          DEBUG: ${{ inputs.debug_mode }}
-          ONE_TIME_RUN: ${{ inputs.one_time_run }}
+          ENABLE_VIDEO: ${{ inputs.enable_video && 'true' || 'false' }}
+          DEBUG: ${{ inputs.debug_mode && 'true' || 'false' }}
+          ONE_TIME_RUN: ${{ inputs.one_time_run && 'true' || 'false' }}
         run: npm run dev
       
       - name: Upload videos
