@@ -1,0 +1,62 @@
+name: StubHub2 Scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_video:
+        description: 'Enable video recording'
+        required: false
+        default: 'true'
+        type: boolean
+  schedule:
+    # Run daily at 10 AM UTC
+    - cron: '0 10 * * *'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: stubhub2-scraper/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: stubhub2-scraper
+        run: npm ci
+      
+      - name: Install Playwright browsers
+        working-directory: stubhub2-scraper
+        run: npx playwright install --with-deps chromium
+      
+      - name: Build TypeScript
+        working-directory: stubhub2-scraper
+        run: npm run build
+      
+      - name: Run scraper
+        working-directory: stubhub2-scraper
+        env:
+          ENABLE_VIDEO: ${{ inputs.enable_video == true || github.event_name == 'schedule' }}
+        run: npm start
+      
+      - name: Upload videos
+        if: always() && (inputs.enable_video == true || github.event_name == 'schedule')
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-videos
+          path: stubhub2-scraper/videos/
+          retention-days: 7
+      
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: stubhub2-scraper/screenshots/
+          retention-days: 7
