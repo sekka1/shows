@@ -32,6 +32,7 @@ const MIN_PRICES_THRESHOLD = 2;
  */
 async function runScraper(): Promise<void> {
   let browser: Browser | null = null;
+  let timestamp = ''; // Define at function scope for use in nested blocks
   
   try {
     console.log('Starting StubHub2 scraper...');
@@ -295,8 +296,10 @@ async function runScraper(): Promise<void> {
     // Wait for final state
     await page.waitForTimeout(3000);
     
+    // Generate timestamp for screenshot filenames
+    timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
     // Take screenshot of main page with Las Vegas events
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const mainScreenshotPath = path.join(screenshotsDir, `01-main-page-${timestamp}.png`);
     
     console.log('\nTaking screenshot of main page...');
@@ -514,6 +517,8 @@ async function runScraper(): Promise<void> {
         await page.waitForTimeout(1000);
         
         const ticketPrices = await page.evaluate(() => {
+          // Note: Constants are redefined here because page.evaluate() runs in the browser context
+          // and cannot access Node.js scope variables. These must match the module-level constants.
           const MIN_TICKET_PRICE = 10;
           const MAX_TICKET_PRICE = 100000;
           const EXACT_PRICE_TEXT_LIMIT = 20;
@@ -621,7 +626,8 @@ async function runScraper(): Promise<void> {
         if (ticketPrices.prices.length > 0) {
           console.log('\n========== TICKET PRICES ==========');
           ticketPrices.prices.forEach((price, index) => {
-            const detail = ticketPrices.details.find(d => d.price === price);
+            // Direct indexing since prices and details arrays are built from same Map in same order
+            const detail = ticketPrices.details[index];
             let priceInfo = `${index + 1}. ${price}`;
             if (detail?.section) priceInfo += ` - Section ${detail.section}`;
             if (detail?.row) priceInfo += ` Row ${detail.row}`;
