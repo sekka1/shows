@@ -19,6 +19,14 @@ const STUBHUB_URL = 'https://www.stubhub.com/explore?lat=MzYuMjQ3&lon=LTExNS4yMT
 // Enable video recording (can be disabled via environment variable)
 const ENABLE_VIDEO = process.env.ENABLE_VIDEO !== 'false';
 
+// Price extraction constants
+const MIN_TICKET_PRICE = 10;
+const MAX_TICKET_PRICE = 100000;
+const EXACT_PRICE_TEXT_LIMIT = 20;
+const FALLBACK_PRICE_TEXT_LIMIT = 50;
+const MAX_PARENT_SEARCH_DEPTH = 5;
+const MIN_PRICES_THRESHOLD = 2;
+
 /**
  * Main scraper function
  */
@@ -506,8 +514,15 @@ async function runScraper(): Promise<void> {
         await page.waitForTimeout(1000);
         
         const ticketPrices = await page.evaluate(() => {
+          const MIN_TICKET_PRICE = 10;
+          const MAX_TICKET_PRICE = 100000;
+          const EXACT_PRICE_TEXT_LIMIT = 20;
+          const FALLBACK_PRICE_TEXT_LIMIT = 50;
+          const MAX_PARENT_SEARCH_DEPTH = 5;
+          const MIN_PRICES_THRESHOLD = 2;
+          
           const prices: string[] = [];
-          const priceDetails: Array<{price: string, section?: string, row?: string}> = [];
+          const priceDetailsMap = new Map<string, {price: string, section?: string, row?: string}>();
           
           // Search for all text nodes and elements on the page
           const allElements = Array.from(document.querySelectorAll('*'));
@@ -517,12 +532,12 @@ async function runScraper(): Promise<void> {
             
             // Look for prices in the format $XXX or $X,XXX
             // Only match elements with short text (likely price displays, not paragraphs)
-            if (text.length < 20 && text.match(/^\$[\d,]+(?:\.\d{2})?$/)) {
+            if (text.length < EXACT_PRICE_TEXT_LIMIT && text.match(/^\$[\d,]+(?:\.\d{2})?$/)) {
               const price = text;
               const numericValue = parseFloat(price.replace(/[$,]/g, ''));
               
               // Filter out unrealistic ticket prices (too low or too high)
-              if (numericValue >= 10 && numericValue <= 100000) {
+              if (numericValue >= MIN_TICKET_PRICE && numericValue <= MAX_TICKET_PRICE) {
                 // Check element bounds (even if not fully visible, as long as it's rendered)
                 const rect = el.getBoundingClientRect();
                 const computedStyle = window.getComputedStyle(el);
@@ -539,7 +554,7 @@ async function runScraper(): Promise<void> {
                   let rowInfo = '';
                   
                   // Look up the DOM tree for section/row information
-                  for (let i = 0; i < 5 && parent; i++) {
+                  for (let i = 0; i < MAX_PARENT_SEARCH_DEPTH && parent; i++) {
                     const parentText = parent.textContent || '';
                     const sectionMatch = parentText.match(/(?:Section|Sec)\s*(\d+|[A-Z]+\d*)/i);
                     const rowMatch = parentText.match(/(?:Row|R)\s*(\d+|[A-Z]+\d*)/i);
@@ -550,7 +565,7 @@ async function runScraper(): Promise<void> {
                     parent = parent.parentElement;
                   }
                   
-                  priceDetails.push({
+                  priceDetailsMap.set(price, {
                     price,
                     section: sectionInfo || undefined,
                     row: rowInfo || undefined
@@ -561,18 +576,18 @@ async function runScraper(): Promise<void> {
           });
           
           // If we didn't find many prices with exact format, also try finding elements with price-like content
-          if (prices.length < 2) {
+          if (prices.length < MIN_PRICES_THRESHOLD) {
             allElements.forEach(el => {
               const text = el.textContent?.trim() || '';
               
               // Match price patterns anywhere in short text
-              if (text.length < 50) {
+              if (text.length < FALLBACK_PRICE_TEXT_LIMIT) {
                 const priceMatch = text.match(/\$[\d,]+(?:\.\d{2})?/);
                 if (priceMatch) {
                   const price = priceMatch[0];
                   const numericValue = parseFloat(price.replace(/[$,]/g, ''));
                   
-                  if (numericValue >= 10 && numericValue <= 100000 && !prices.includes(price)) {
+                  if (numericValue >= MIN_TICKET_PRICE && numericValue <= MAX_TICKET_PRICE && !prices.includes(price)) {
                     const rect = el.getBoundingClientRect();
                     const computedStyle = window.getComputedStyle(el);
                     const isRendered = computedStyle.display !== 'none' && 
@@ -580,7 +595,7 @@ async function runScraper(): Promise<void> {
                     
                     if (isRendered) {
                       prices.push(price);
-                      priceDetails.push({ price });
+                      priceDetailsMap.set(price, { price });
                     }
                   }
                 }
@@ -588,16 +603,18 @@ async function runScraper(): Promise<void> {
             });
           }
           
-          // Remove duplicates and sort by price
-          const uniquePrices = Array.from(new Set(prices));
-          uniquePrices.sort((a, b) => {
+          // Sort by price
+          prices.sort((a, b) => {
             const aVal = parseFloat(a.replace(/[$,]/g, ''));
             const bVal = parseFloat(b.replace(/[$,]/g, ''));
             return aVal - bVal;
           });
           
+          // Build details array from map
+          const priceDetails = prices.map(price => priceDetailsMap.get(price)!);
+          
           // Return both prices and details
-          return { prices: uniquePrices, details: priceDetails };
+          return { prices, details: priceDetails };
         });
         
         console.log(`\n✓ Found ${ticketPrices.prices.length} ticket prices:`);
