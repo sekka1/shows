@@ -1,0 +1,27 @@
+{
+  "name": "stubhub2-scraper",
+  "version": "1.0.0",
+  "description": "StubHub scraper using TypeScript and Playwright with real browser",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "stubhub",
+    "scraper",
+    "playwright"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.57.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "typescript": "^5.3.3"
+  }
+}
