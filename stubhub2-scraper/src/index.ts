@@ -82,6 +82,7 @@ async function runScraper(): Promise<void> {
     console.log(`  URL: ${pageUrl}`);
     
     // Try to close any modals/popups
+    console.log('\nClosing any modals/popups...');
     try {
       const closeButton = page.locator('button[aria-label*="close" i], button:has-text("×")').first();
       if (await closeButton.count() > 0) {
@@ -93,7 +94,197 @@ async function runScraper(): Promise<void> {
       // No modal to close
     }
     
-    // Wait a bit more for content to render
+    // Wait for content to render and location button to appear
+    console.log('\nWaiting for page elements to load...');
+    await page.waitForTimeout(5000); // Wait longer for the page to fully load
+    
+    // Change location to Las Vegas
+    console.log('\nChanging location to Las Vegas...');
+    try {
+      // Find elements with "New York" - specifically looking for the location selector
+      const locationElementInfo = await page.evaluate(() => {
+        const allElements = Array.from(document.querySelectorAll('*'));
+        const elementsWithNewYork = allElements
+          .filter(el => {
+            const text = el.textContent?.trim() || '';
+            // Look for elements with JUST "New York" or very short text containing it
+            return text.includes('New York') && text.length < 50;
+          })
+          .map(el => ({
+            tag: el.tagName,
+            text: el.textContent?.trim() || '',
+            clickable: el.tagName === 'BUTTON' || el.tagName === 'A' || (el as any).onclick !== null || el.getAttribute('role') === 'button'
+          }))
+          .slice(0, 10);
+        
+        return elementsWithNewYork;
+      });
+      
+      console.log(`  Found ${locationElementInfo.length} elements with "New York" (short text):`);
+      locationElementInfo.forEach((el, idx) => {
+        console.log(`    [${idx}] <${el.tag}> "${el.text}" clickable=${el.clickable}`);
+      });
+      
+      // Click the New York location selector - look for shortest text match
+      const clicked = await page.evaluate(() => {
+        const allElements = Array.from(document.querySelectorAll('*'));
+        const newYorkElements = allElements
+          .filter(el => {
+            const text = el.textContent?.trim() || '';
+            return text.includes('New York') && text.length < 50;
+          })
+          .sort((a, b) => (a.textContent?.trim().length || 999) - (b.textContent?.trim().length || 999));
+        
+        // Try clicking from shortest to longest text
+        for (const el of newYorkElements) {
+          if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' || el.tagName === 'A') {
+            (el as HTMLElement).click();
+            return { success: true, tag: el.tagName, text: el.textContent?.trim() || '' };
+          }
+        }
+        
+        // If no button found, try clicking any div
+        for (const el of newYorkElements) {
+          if (el.tagName === 'DIV' || el.tagName === 'SPAN') {
+            (el as HTMLElement).click();
+            return { success: true, tag: el.tagName, text: el.textContent?.trim() || '' };
+          }
+        }
+        
+        return { success: false, tag: '', text: '' };
+      });
+      
+      if (clicked.success) {
+        console.log(`  ✓ Clicked <${clicked.tag}> with text "${clicked.text}"`);
+        await page.waitForTimeout(3000); // Wait longer for dropdown to appear
+        
+        // Close any modal that might have appeared (NOT the location dropdown)
+        const modalClosed = await page.evaluate(() => {
+          const closeButtons = Array.from(document.querySelectorAll('button'));
+          const closeBtn = closeButtons.find(btn => 
+            btn.getAttribute('aria-label')?.toLowerCase().includes('close') ||
+            btn.textContent === '×'
+          );
+          if (closeBtn) {
+            // Check if this is a modal, not the location dropdown
+            const parentText = closeBtn.parentElement?.textContent || '';
+            if (!parentText.includes('Search location') && !parentText.includes('Las Vegas')) {
+              (closeBtn as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        });
+        
+        if (modalClosed) {
+          console.log('  ✓ Closed interfering modal');
+          await page.waitForTimeout(1000);
+          
+          // Click New York button again to open location dropdown
+          await page.evaluate(() => {
+            const allElements = Array.from(document.querySelectorAll('*'));
+            const newYorkElements = allElements
+              .filter(el => {
+                const text = el.textContent?.trim() || '';
+                return text.includes('New York') && text.length < 50;
+              })
+              .sort((a, b) => (a.textContent?.trim().length || 999) - (b.textContent?.trim().length || 999));
+            
+            for (const el of newYorkElements) {
+              if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') {
+                (el as HTMLElement).click();
+                break;
+              }
+            }
+          });
+          console.log('  ✓ Clicked New York button again');
+          await page.waitForTimeout(3000);
+        }
+        
+        // Now find the location input that should have appeared in the dropdown
+        const inputFilled = await page.evaluate(() => {
+          const inputs = Array.from(document.querySelectorAll('input'));
+          
+          // Find a visible input - should be the location search in the dropdown
+          const locationInput = inputs.find(input => {
+            const placeholder = input.getAttribute('placeholder') || '';
+            const isVisible = input.offsetParent !== null;
+            return isVisible && (
+              placeholder.toLowerCase().includes('search') ||
+              placeholder.toLowerCase().includes('location') ||
+              placeholder.toLowerCase().includes('city')
+            );
+          });
+          
+          if (locationInput) {
+            locationInput.focus();
+            locationInput.value = 'Las Vegas Nevada';
+            locationInput.dispatchEvent(new Event('input', { bubbles: true }));
+            locationInput.dispatchEvent(new Event('change', { bubbles: true }));
+            return { success: true, placeholder: locationInput.getAttribute('placeholder') || '' };
+          }
+          
+          // If no placeholder match, try any visible text input
+          const anyVisibleInput = inputs.find(input => 
+            input.offsetParent !== null && (input.type === 'text' || input.type === 'search')
+          );
+          
+          if (anyVisibleInput) {
+            anyVisibleInput.focus();
+            anyVisibleInput.value = 'Las Vegas Nevada';
+            anyVisibleInput.dispatchEvent(new Event('input', { bubbles: true }));
+            anyVisibleInput.dispatchEvent(new Event('change', { bubbles: true }));
+            return { success: true, placeholder: anyVisibleInput.getAttribute('placeholder') || 'no placeholder' };
+          }
+          
+          return { success: false, placeholder: '' };
+        });
+        
+        if (inputFilled.success) {
+          console.log(`  ✓ Typed "Las Vegas Nevada" into input (placeholder: "${inputFilled.placeholder}")`);
+          await page.waitForTimeout(2000);
+          
+          // Press Enter to submit
+          await page.keyboard.press('Enter');
+          console.log('  ✓ Pressed Enter');
+          await page.waitForTimeout(6000); // Wait for page to reload with Las Vegas events
+          
+          // Verify location changed
+          const heading = await page.locator('h1, h2').first().textContent().catch(() => 'N/A');
+          console.log(`  Final heading: ${heading}`);
+          
+          if (heading && heading.includes('Las Vegas')) {
+            console.log('  ✓✓✓ Successfully changed to Las Vegas!');
+          } else if (heading === 'N/A') {
+            console.log('  ⚠ Could not read heading (page may still be loading)');
+          } else {
+            console.log('  ⚠ Location may not have changed (still showing: ' + heading + ')');
+          }
+        } else {
+          console.log('  ✗ Location input not found after clicking New York');
+          
+          // Debug: show what inputs are visible
+          const visibleInputs = await page.evaluate(() => {
+            const inputs = Array.from(document.querySelectorAll('input'));
+            return inputs
+              .filter(i => i.offsetParent !== null)
+              .map(i => ({
+                type: i.type,
+                placeholder: i.getAttribute('placeholder') || '',
+                value: i.value
+              }));
+          });
+          console.log(`  Visible inputs: ${JSON.stringify(visibleInputs)}`);
+        }
+      } else {
+        console.log('  ✗ Could not find clickable New York element');
+      }
+      
+    } catch (error) {
+      console.warn('  Error:', error);
+    }
+    
+    // Wait for final state
     await page.waitForTimeout(3000);
     
     // Take screenshot
