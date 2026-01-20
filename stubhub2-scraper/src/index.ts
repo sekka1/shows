@@ -287,20 +287,98 @@ async function runScraper(): Promise<void> {
     // Wait for final state
     await page.waitForTimeout(3000);
     
-    // Take screenshot
+    // Take screenshot of main page with Las Vegas events
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const screenshotPath = path.join(screenshotsDir, `stubhub-explore-${timestamp}.png`);
+    const mainScreenshotPath = path.join(screenshotsDir, `01-main-page-${timestamp}.png`);
     
-    console.log('\nTaking screenshot...');
+    console.log('\nTaking screenshot of main page...');
     await page.screenshot({ 
-      path: screenshotPath,
+      path: mainScreenshotPath,
       fullPage: true 
     });
-    console.log(`  Screenshot saved: ${screenshotPath}`);
+    console.log(`  Main page screenshot saved: ${mainScreenshotPath}`);
     
-    // Check for events on the page
-    const eventCount = await page.locator('[class*="EventCard"], [data-testid*="event"], a[href*="/event/"]').count();
-    console.log(`\nEvents found on page: ${eventCount}`);
+    // Find all event links on the page
+    console.log('\nFinding event links...');
+    const eventLinks = await page.evaluate(() => {
+      const links = Array.from(document.querySelectorAll('a[href*="/event/"]'));
+      const uniqueUrls = new Set<string>();
+      
+      links.forEach(link => {
+        const href = (link as HTMLAnchorElement).href;
+        // Only include event detail pages, not tickets or other pages
+        if (href && href.includes('/event/') && !href.includes('/tickets/')) {
+          uniqueUrls.add(href);
+        }
+      });
+      
+      return Array.from(uniqueUrls);
+    });
+    
+    console.log(`  Found ${eventLinks.length} unique event links`);
+    
+    // Click on each event and take screenshots
+    if (eventLinks.length > 0) {
+      console.log('\nCapturing screenshots of individual events...');
+      
+      for (let i = 0; i < eventLinks.length; i++) {
+        const eventUrl = eventLinks[i];
+        const eventNum = String(i + 2).padStart(2, '0'); // Start at 02 since main page is 01
+        
+        try {
+          console.log(`\n[${i + 1}/${eventLinks.length}] Navigating to event: ${eventUrl}`);
+          
+          // Navigate to the event page
+          await page.goto(eventUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await page.waitForTimeout(3000);
+          
+          // Close any popups/modals that might appear
+          try {
+            const closeButton = page.locator('button[aria-label*="close" i], button:has-text("×")').first();
+            if (await closeButton.count() > 0 && await closeButton.isVisible({ timeout: 1000 })) {
+              await closeButton.click({ timeout: 2000 });
+              await page.waitForTimeout(1000);
+            }
+          } catch (e) {
+            // No modal to close
+          }
+          
+          // Get event title for the filename
+          const eventTitle = await page.evaluate(() => {
+            const h1 = document.querySelector('h1');
+            if (h1 && h1.textContent) {
+              return h1.textContent.trim()
+                .substring(0, 50)
+                .replace(/[^a-zA-Z0-9\s-]/g, '')
+                .replace(/\s+/g, '-')
+                .toLowerCase();
+            }
+            return 'event';
+          });
+          
+          // Take screenshot of event detail page
+          const eventScreenshotPath = path.join(screenshotsDir, `${eventNum}-${eventTitle}.png`);
+          await page.screenshot({ 
+            path: eventScreenshotPath,
+            fullPage: true 
+          });
+          console.log(`  Screenshot saved: ${eventScreenshotPath}`);
+          
+        } catch (error) {
+          console.error(`  Error capturing event ${i + 1}:`, error);
+          // Continue with next event
+        }
+      }
+      
+      console.log(`\n✓ Captured screenshots for ${eventLinks.length} events`);
+    } else {
+      console.log('  No event links found to capture');
+    }
+    
+    // Return to main page for final state
+    console.log('\nReturning to main page...');
+    await page.goto(STUBHUB_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(2000);
     
     // Wait a bit more for video recording
     if (ENABLE_VIDEO) {
