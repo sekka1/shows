@@ -615,8 +615,8 @@ async function runScraper(): Promise<void> {
             return aVal - bVal;
           });
           
-          // Build details array from map
-          const priceDetails = prices.map(price => priceDetailsMap.get(price)!);
+          // Build details array from map (safe because prices array was used to build the map)
+          const priceDetails = prices.map(price => priceDetailsMap.get(price) || { price });
           
           // Return both prices and details
           return { prices, details: priceDetails };
