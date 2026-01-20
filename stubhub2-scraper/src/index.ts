@@ -317,62 +317,317 @@ async function runScraper(): Promise<void> {
     
     console.log(`  Found ${eventLinks.length} unique event links`);
     
-    // Click on each event and take screenshots
+    // Click on first event and get ticket prices
     if (eventLinks.length > 0) {
-      console.log('\nCapturing screenshots of individual events...');
+      const firstEventUrl = eventLinks[0];
+      console.log(`\nNavigating to first event to get ticket prices: ${firstEventUrl}`);
       
-      for (let i = 0; i < eventLinks.length; i++) {
-        const eventUrl = eventLinks[i];
-        const eventNum = String(i + 2).padStart(2, '0'); // Start at 02 since main page is 01
+      try {
+        // Navigate to the event page
+        await page.goto(firstEventUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForTimeout(3000);
         
+        // Close any popups/modals that might appear
         try {
-          console.log(`\n[${i + 1}/${eventLinks.length}] Navigating to event: ${eventUrl}`);
+          const closeButton = page.locator('button[aria-label*="close" i], button:has-text("×")').first();
+          if (await closeButton.count() > 0 && await closeButton.isVisible({ timeout: 1000 })) {
+            await closeButton.click({ timeout: 2000 });
+            await page.waitForTimeout(1000);
+          }
+        } catch (e) {
+          // No modal to close
+        }
+        
+        // Get event title
+        const eventTitle = await page.evaluate(() => {
+          const h1 = document.querySelector('h1');
+          if (h1 && h1.textContent) {
+            return h1.textContent.trim();
+          }
+          return 'Unknown Event';
+        });
+        console.log(`  Event: ${eventTitle}`);
+        
+        // Set number of tickets to 2
+        console.log('\nSetting number of tickets to 2...');
+        const ticketSetResult = await page.evaluate(() => {
+          // Look for quantity selector - could be a dropdown, buttons, or input
+          // Try to find elements with "2" or quantity-related attributes
           
-          // Navigate to the event page
-          await page.goto(eventUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          await page.waitForTimeout(3000);
-          
-          // Close any popups/modals that might appear
-          try {
-            const closeButton = page.locator('button[aria-label*="close" i], button:has-text("×")').first();
-            if (await closeButton.count() > 0 && await closeButton.isVisible({ timeout: 1000 })) {
-              await closeButton.click({ timeout: 2000 });
-              await page.waitForTimeout(1000);
+          // Try dropdown approach
+          const selects = Array.from(document.querySelectorAll('select'));
+          for (const select of selects) {
+            // Check if this is a quantity selector
+            const label = select.getAttribute('aria-label')?.toLowerCase() || '';
+            const id = select.id?.toLowerCase() || '';
+            const name = select.name?.toLowerCase() || '';
+            
+            if (label.includes('quantity') || label.includes('ticket') || 
+                id.includes('quantity') || id.includes('ticket') ||
+                name.includes('quantity') || name.includes('ticket')) {
+              // Try to set value to 2
+              const option2 = Array.from(select.options).find(opt => opt.value === '2' || opt.text === '2');
+              if (option2) {
+                select.value = option2.value;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+                return { success: true, method: 'dropdown', element: select.tagName };
+              }
             }
-          } catch (e) {
-            // No modal to close
           }
           
-          // Get event title for the filename
-          const eventTitle = await page.evaluate(() => {
-            const h1 = document.querySelector('h1');
-            if (h1 && h1.textContent) {
-              return h1.textContent.trim()
-                .substring(0, 50)
-                .replace(/[^a-zA-Z0-9\s-]/g, '')
-                .replace(/\s+/g, '-')
-                .toLowerCase();
+          // Try button approach - look for "+", "2", or increment buttons
+          const buttons = Array.from(document.querySelectorAll('button'));
+          
+          // First, look for a button with "2" on it
+          const button2 = buttons.find(btn => btn.textContent?.trim() === '2');
+          if (button2) {
+            (button2 as HTMLElement).click();
+            return { success: true, method: 'button-2', element: button2.tagName };
+          }
+          
+          // Look for increment buttons and click to get to 2
+          const incrementBtn = buttons.find(btn => {
+            const text = btn.textContent?.trim() || '';
+            const ariaLabel = btn.getAttribute('aria-label')?.toLowerCase() || '';
+            return text === '+' || text === '▲' || ariaLabel.includes('increase') || ariaLabel.includes('increment');
+          });
+          
+          if (incrementBtn) {
+            // Click increment button once (assuming default is 1)
+            (incrementBtn as HTMLElement).click();
+            return { success: true, method: 'increment-button', element: incrementBtn.tagName };
+          }
+          
+          // Try input approach
+          const inputs = Array.from(document.querySelectorAll('input[type="number"], input[type="text"]'));
+          for (const input of inputs) {
+            const label = (input as HTMLInputElement).getAttribute('aria-label')?.toLowerCase() || '';
+            const id = (input as HTMLInputElement).id?.toLowerCase() || '';
+            const name = (input as HTMLInputElement).name?.toLowerCase() || '';
+            
+            if (label.includes('quantity') || label.includes('ticket') || 
+                id.includes('quantity') || id.includes('ticket') ||
+                name.includes('quantity') || name.includes('ticket')) {
+              (input as HTMLInputElement).value = '2';
+              input.dispatchEvent(new Event('input', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+              return { success: true, method: 'input', element: input.tagName };
             }
-            return 'event';
+          }
+          
+          return { success: false, method: 'none', element: 'none' };
+        });
+        
+        if (ticketSetResult.success) {
+          console.log(`  ✓ Set quantity to 2 using ${ticketSetResult.method}`);
+          await page.waitForTimeout(2000); // Wait for modal to update
+          
+          // Click the Continue button
+          console.log('\nClicking Continue button...');
+          const continueClicked = await page.evaluate(() => {
+            const buttons = Array.from(document.querySelectorAll('button'));
+            const continueBtn = buttons.find(btn => {
+              const text = btn.textContent?.trim().toLowerCase() || '';
+              return text === 'continue' || text.includes('continue');
+            });
+            
+            if (continueBtn) {
+              (continueBtn as HTMLElement).click();
+              return { success: true };
+            }
+            return { success: false };
           });
           
-          // Take screenshot of event detail page
-          const eventScreenshotPath = path.join(screenshotsDir, `${eventNum}-${eventTitle}.png`);
-          await page.screenshot({ 
-            path: eventScreenshotPath,
-            fullPage: true 
-          });
-          console.log(`  Screenshot saved: ${eventScreenshotPath}`);
-          
-        } catch (error) {
-          console.error(`  Error capturing event ${i + 1}:`, error);
-          // Continue with next event
+          if (continueClicked.success) {
+            console.log('  ✓ Clicked Continue button');
+            await page.waitForTimeout(5000); // Wait for ticket listings to load
+          } else {
+            console.log('  ⚠ Continue button not found, tickets may already be showing');
+            await page.waitForTimeout(3000);
+          }
+        } else {
+          console.log('  ⚠ Could not find quantity selector, page may auto-show tickets');
+          await page.waitForTimeout(3000);
         }
+        
+        // Extract ticket prices from the listings
+        console.log('\nExtracting ticket prices...');
+        
+        // First, let's debug what we see on the page
+        const pageDebugInfo = await page.evaluate(() => {
+          // Look for the listings container on the right side
+          const listingsTexts: string[] = [];
+          
+          // Try to find elements that might contain the ticket listings
+          const listingsContainer = document.querySelector('[class*="listings"]') ||
+                                   document.querySelector('[class*="Listings"]') ||
+                                   document.querySelector('[data-testid*="listings"]');
+          
+          if (listingsContainer) {
+            listingsTexts.push('Found listings container: ' + listingsContainer.className);
+          } else {
+            listingsTexts.push('No listings container found');
+          }
+          
+          // Check if there's a scrollable area we need to interact with
+          const scrollableElements = Array.from(document.querySelectorAll('*')).filter(el => {
+            const style = window.getComputedStyle(el);
+            return style.overflow === 'auto' || style.overflow === 'scroll' || 
+                   style.overflowY === 'auto' || style.overflowY === 'scroll';
+          });
+          
+          listingsTexts.push(`Found ${scrollableElements.length} scrollable elements`);
+          
+          return listingsTexts;
+        });
+        
+        console.log('  Page debug info:', pageDebugInfo);
+        
+        // Scroll down in case ticket listings are below the fold
+        await page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight / 2);
+        });
+        await page.waitForTimeout(2000);
+        
+        // Also try scrolling within any scrollable containers (like the listings panel)
+        await page.evaluate(() => {
+          const scrollableElements = Array.from(document.querySelectorAll('*')).filter(el => {
+            const style = window.getComputedStyle(el);
+            return (style.overflow === 'auto' || style.overflow === 'scroll' || 
+                   style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+                   el.scrollHeight > el.clientHeight;
+          });
+          
+          // Scroll each scrollable element to make sure all content is rendered
+          scrollableElements.forEach(el => {
+            el.scrollTop = 0; // Scroll to top first
+          });
+        });
+        await page.waitForTimeout(1000);
+        
+        const ticketPrices = await page.evaluate(() => {
+          const prices: string[] = [];
+          const priceDetails: Array<{price: string, section?: string, row?: string}> = [];
+          
+          // Search for all text nodes and elements on the page
+          const allElements = Array.from(document.querySelectorAll('*'));
+          
+          allElements.forEach(el => {
+            const text = el.textContent?.trim() || '';
+            
+            // Look for prices in the format $XXX or $X,XXX
+            // Only match elements with short text (likely price displays, not paragraphs)
+            if (text.length < 20 && text.match(/^\$[\d,]+(?:\.\d{2})?$/)) {
+              const price = text;
+              const numericValue = parseFloat(price.replace(/[$,]/g, ''));
+              
+              // Filter out unrealistic ticket prices (too low or too high)
+              if (numericValue >= 10 && numericValue <= 100000) {
+                // Check element bounds (even if not fully visible, as long as it's rendered)
+                const rect = el.getBoundingClientRect();
+                const computedStyle = window.getComputedStyle(el);
+                const isRendered = computedStyle.display !== 'none' && 
+                                  computedStyle.visibility !== 'hidden' &&
+                                  (rect.width > 0 || rect.height > 0); // Relaxed visibility check
+                
+                if (isRendered && !prices.includes(price)) {
+                  prices.push(price);
+                  
+                  // Try to find section/row info nearby
+                  let parent = el.parentElement;
+                  let sectionInfo = '';
+                  let rowInfo = '';
+                  
+                  // Look up the DOM tree for section/row information
+                  for (let i = 0; i < 5 && parent; i++) {
+                    const parentText = parent.textContent || '';
+                    const sectionMatch = parentText.match(/(?:Section|Sec)\s*(\d+|[A-Z]+\d*)/i);
+                    const rowMatch = parentText.match(/(?:Row|R)\s*(\d+|[A-Z]+\d*)/i);
+                    
+                    if (sectionMatch && !sectionInfo) sectionInfo = sectionMatch[1];
+                    if (rowMatch && !rowInfo) rowInfo = rowMatch[1];
+                    
+                    parent = parent.parentElement;
+                  }
+                  
+                  priceDetails.push({
+                    price,
+                    section: sectionInfo || undefined,
+                    row: rowInfo || undefined
+                  });
+                }
+              }
+            }
+          });
+          
+          // If we didn't find many prices with exact format, also try finding elements with price-like content
+          if (prices.length < 2) {
+            allElements.forEach(el => {
+              const text = el.textContent?.trim() || '';
+              
+              // Match price patterns anywhere in short text
+              if (text.length < 50) {
+                const priceMatch = text.match(/\$[\d,]+(?:\.\d{2})?/);
+                if (priceMatch) {
+                  const price = priceMatch[0];
+                  const numericValue = parseFloat(price.replace(/[$,]/g, ''));
+                  
+                  if (numericValue >= 10 && numericValue <= 100000 && !prices.includes(price)) {
+                    const rect = el.getBoundingClientRect();
+                    const computedStyle = window.getComputedStyle(el);
+                    const isRendered = computedStyle.display !== 'none' && 
+                                      computedStyle.visibility !== 'hidden';
+                    
+                    if (isRendered) {
+                      prices.push(price);
+                      priceDetails.push({ price });
+                    }
+                  }
+                }
+              }
+            });
+          }
+          
+          // Remove duplicates and sort by price
+          const uniquePrices = Array.from(new Set(prices));
+          uniquePrices.sort((a, b) => {
+            const aVal = parseFloat(a.replace(/[$,]/g, ''));
+            const bVal = parseFloat(b.replace(/[$,]/g, ''));
+            return aVal - bVal;
+          });
+          
+          // Return both prices and details
+          return { prices: uniquePrices, details: priceDetails };
+        });
+        
+        console.log(`\n✓ Found ${ticketPrices.prices.length} ticket prices:`);
+        if (ticketPrices.prices.length > 0) {
+          console.log('\n========== TICKET PRICES ==========');
+          ticketPrices.prices.forEach((price, index) => {
+            const detail = ticketPrices.details.find(d => d.price === price);
+            let priceInfo = `${index + 1}. ${price}`;
+            if (detail?.section) priceInfo += ` - Section ${detail.section}`;
+            if (detail?.row) priceInfo += ` Row ${detail.row}`;
+            console.log(priceInfo);
+          });
+          console.log('===================================\n');
+        } else {
+          console.log('  No ticket prices found. The page structure may have changed.');
+        }
+        
+        // Take screenshot showing the ticket prices
+        const ticketScreenshotPath = path.join(screenshotsDir, `02-ticket-prices-${timestamp}.png`);
+        await page.screenshot({ 
+          path: ticketScreenshotPath,
+          fullPage: true 
+        });
+        console.log(`  Screenshot with ticket prices saved: ${ticketScreenshotPath}`);
+        
+      } catch (error) {
+        console.error('  Error getting ticket prices:', error);
       }
-      
-      console.log(`\n✓ Captured screenshots for ${eventLinks.length} events`);
     } else {
-      console.log('  No event links found to capture');
+      console.log('  No event links found');
     }
     
     // Return to main page for final state
