@@ -2,6 +2,11 @@ import { chromium, Browser, Page } from 'playwright';
 
 const STUBHUB_URL = 'https://www.stubhub.com';
 
+// Set to a number to limit events processed, or null to process all events
+// const MAX_EVENTS_TO_PROCESS: number | null = null;
+const MAX_EVENTS_TO_PROCESS: number | null = 5;
+
+
 interface EventData {
   name: string;
   url: string;
@@ -244,8 +249,15 @@ async function main(): Promise<void> {
     if (eventLinks.length === 0) {
       console.log('No events found on the page. Exiting.');
     } else {
+      // Determine how many events to process
+      const eventsToProcess = MAX_EVENTS_TO_PROCESS !== null 
+        ? Math.min(MAX_EVENTS_TO_PROCESS, eventLinks.length) 
+        : eventLinks.length;
+      
+      console.log(`Processing ${eventsToProcess} of ${eventLinks.length} events`);
+      
       // Iterate through each event
-      for (let i = 0; i < eventLinks.length; i++) {
+      for (let i = 0; i < eventsToProcess; i++) {
         const event = eventLinks[i];
         console.log(`\n[${i + 1}/${eventLinks.length}] Processing: ${event.name}`);
         
