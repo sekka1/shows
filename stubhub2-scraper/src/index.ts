@@ -4,7 +4,7 @@ const STUBHUB_URL = 'https://www.stubhub.com';
 
 // Set to a number to limit events processed, or null to process all events
 // const MAX_EVENTS_TO_PROCESS: number | null = null;
-const MAX_EVENTS_TO_PROCESS: number | null = 5;
+const MAX_EVENTS_TO_PROCESS: number | null = 3;
 
 
 interface EventData {
