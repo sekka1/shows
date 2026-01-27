@@ -6,6 +6,9 @@ const STUBHUB_URL = 'https://www.stubhub.com';
 // const MAX_EVENTS_TO_PROCESS: number | null = null;
 const MAX_EVENTS_TO_PROCESS: number | null = 3;
 
+// Set to true to run browser in headless mode (no visible window), false to see the browser
+const HEADLESS_MODE = true;
+
 
 interface EventData {
   name: string;
@@ -18,7 +21,7 @@ async function main(): Promise<void> {
 
   try {
     console.log('Launching browser...');
-    browser = await chromium.launch({ headless: false });
+    browser = await chromium.launch({ headless: HEADLESS_MODE });
 
     const context = await browser.newContext({
       viewport: { width: 1280, height: 720 }
