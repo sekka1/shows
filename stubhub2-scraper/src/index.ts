@@ -2,6 +2,12 @@ import { chromium, Browser, Page } from 'playwright';
 
 const STUBHUB_URL = 'https://www.stubhub.com';
 
+interface EventData {
+  name: string;
+  url: string;
+  lowestPrices: number[];
+}
+
 async function main(): Promise<void> {
   let browser: Browser | null = null;
 
@@ -148,7 +154,185 @@ async function main(): Promise<void> {
     await lasVegasOption.click();
     console.log('Selected Las Vegas, NV, USA');
 
-    // Pause briefly so you can see the result
+    // Wait for location change to take effect
+    await page.waitForTimeout(3000);
+
+    // Find and click the date dropdown ("All dates")
+    console.log('Looking for date filter dropdown...');
+    const dateDropdownSelectors = [
+      'button:has-text("All dates")',
+      '[role="button"]:has-text("All dates")',
+      'div:has-text("All dates")',
+      'button:has-text("Date")',
+      '[aria-label*="date" i]',
+    ];
+
+    let dateDropdownClicked = false;
+    for (const selector of dateDropdownSelectors) {
+      const dropdown = page.locator(selector).first();
+      if (await dropdown.count() > 0 && await dropdown.isVisible().catch(() => false)) {
+        await dropdown.click({ timeout: 5000 }).catch(() => undefined);
+        console.log(`Clicked date dropdown via selector: ${selector}`);
+        dateDropdownClicked = true;
+        await page.waitForTimeout(1000);
+        break;
+      }
+    }
+
+    if (!dateDropdownClicked) {
+      console.log('Date dropdown not found, continuing without date filter');
+    } else {
+      // Select "Today" from the dropdown
+      const todayOption = page.locator('text=/^Today$/i, button:has-text("Today"), [role="option"]:has-text("Today")').first();
+      if (await todayOption.isVisible().catch(() => false)) {
+        await todayOption.click();
+        console.log('Selected "Today" from date filter');
+        
+        // Wait for the filtered events to load
+        await page.waitForTimeout(4000);
+      } else {
+        console.log('"Today" option not found in dropdown');
+      }
+    }
+
+    // Wait for events to load
+    await page.waitForTimeout(2000);
+
+    // Collect all event data
+    const results: EventData[] = [];
+
+    // Find all event links on the page
+    console.log('Finding events on the page...');
+    
+    // Try multiple selectors to find event links
+    const eventSelectors = [
+      'a[href*="/event/"]',
+      'a[href*="/performer/"]',
+      'article a[href]',
+      'div[class*="event" i] a[href]',
+      'h3 a[href], h4 a[href]',
+    ];
+
+    let eventLinks: Array<{ name: string; url: string }> = [];
+    
+    for (const selector of eventSelectors) {
+      const links = await page.evaluate((sel) => {
+        const anchors = Array.from(document.querySelectorAll(sel));
+        return anchors
+          .filter(a => {
+            const href = (a as HTMLAnchorElement).href;
+            const text = a.textContent?.trim() || '';
+            return href && text && text.length > 0 && text.length < 150;
+          })
+          .map(a => ({
+            name: a.textContent?.trim() || '',
+            url: (a as HTMLAnchorElement).href
+          }));
+      }, selector);
+      
+      if (links.length > 0) {
+        // Deduplicate by URL
+        const urlSet = new Set(eventLinks.map(e => e.url));
+        const newLinks = links.filter(link => !urlSet.has(link.url));
+        eventLinks.push(...newLinks);
+        console.log(`Found ${links.length} event links with selector: ${selector}`);
+      }
+    }
+
+    console.log(`Total unique events found: ${eventLinks.length}`);
+
+    if (eventLinks.length === 0) {
+      console.log('No events found on the page. Exiting.');
+    } else {
+      // Iterate through each event
+      for (let i = 0; i < eventLinks.length; i++) {
+        const event = eventLinks[i];
+        console.log(`\n[${i + 1}/${eventLinks.length}] Processing: ${event.name}`);
+        
+        try {
+          // Navigate to event page
+          await page.goto(event.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await page.waitForTimeout(2000);
+
+          // Check for ticket quantity prompt
+          const ticketQuantityInput = page.locator('input[type="number"], input[placeholder*="ticket" i], input[placeholder*="quantity" i]').first();
+          if (await ticketQuantityInput.isVisible().catch(() => false)) {
+            await ticketQuantityInput.fill('2');
+            console.log('  Entered quantity: 2');
+            await page.waitForTimeout(1000);
+            
+            // Look for submit/continue button
+            const submitBtn = page.locator('button:has-text("Continue"), button:has-text("Submit"), button[type="submit"]').first();
+            if (await submitBtn.isVisible().catch(() => false)) {
+              await submitBtn.click();
+              await page.waitForTimeout(2000);
+            }
+          }
+
+          // Wait for prices to load
+          await page.waitForTimeout(3000);
+
+          // Extract all price elements
+          const prices = await page.evaluate(() => {
+            const priceElements = Array.from(document.querySelectorAll('*'));
+            const priceRegex = /\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/g;
+            const foundPrices: number[] = [];
+
+            priceElements.forEach(el => {
+              const text = el.textContent || '';
+              const matches = text.matchAll(priceRegex);
+              for (const match of matches) {
+                const priceStr = match[1].replace(/,/g, '');
+                const price = parseFloat(priceStr);
+                if (!isNaN(price) && price > 0 && price < 10000) {
+                  foundPrices.push(price);
+                }
+              }
+            });
+
+            // Sort and deduplicate
+            const uniquePrices = Array.from(new Set(foundPrices)).sort((a, b) => a - b);
+            return uniquePrices;
+          });
+
+          console.log(`  Found ${prices.length} unique prices`);
+          
+          // Get the two lowest prices
+          const lowestPrices = prices.slice(0, 2);
+          
+          if (lowestPrices.length > 0) {
+            console.log(`  Lowest prices: ${lowestPrices.map(p => `$${p.toFixed(2)}`).join(', ')}`);
+          } else {
+            console.log(`  No prices found for this event`);
+          }
+
+          results.push({
+            name: event.name,
+            url: event.url,
+            lowestPrices
+          });
+
+          // Small delay to avoid rate limiting
+          await page.waitForTimeout(1500);
+
+        } catch (error) {
+          console.error(`  Error processing event: ${error instanceof Error ? error.message : String(error)}`);
+          // Add event with no prices on error
+          results.push({
+            name: event.name,
+            url: event.url,
+            lowestPrices: []
+          });
+        }
+      }
+    }
+
+    // Print final results
+    console.log('\n\n========== FINAL RESULTS ==========');
+    console.log(JSON.stringify(results, null, 2));
+    console.log('\n===================================\n');
+
+    // Pause so you can see the browser state
     await page.waitForTimeout(10000);
 
     await context.close();
