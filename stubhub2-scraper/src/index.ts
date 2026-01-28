@@ -23,6 +23,7 @@ interface EventData {
 
 /**
  * Posts event data to Slack channel
+ * Splits into multiple messages if needed to stay under 4000 character limit
  */
 async function postToSlack(events: EventData[]): Promise<void> {
   if (!ENABLE_SLACK || events.length === 0) {
@@ -30,61 +31,125 @@ async function postToSlack(events: EventData[]): Promise<void> {
   }
 
   try {
-    const blocks: any[] = [
-      {
-        type: 'header',
-        text: {
-          type: 'plain_text',
-          text: '🎟️ Las Vegas Events - Today',
-          emoji: true
-        }
-      },
-      {
-        type: 'context',
-        elements: [
-          {
-            type: 'mrkdwn',
-            text: `Updated: <!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toLocaleString()}> | Total Events: ${events.length}`
-          }
-        ]
-      }
-    ];
+    // Create batches of events that fit within Slack's character limit
+    const batches: EventData[][] = [];
+    let currentBatch: EventData[] = [];
+    let currentSize = 0;
 
-    // Add each event
+    const headerSize = JSON.stringify({
+      type: 'header',
+      text: { type: 'plain_text', text: '🎟️ Las Vegas Events - Today', emoji: true }
+    }).length;
+
+    const contextSize = JSON.stringify({
+      type: 'context',
+      elements: [{
+        type: 'mrkdwn',
+        text: `Updated: <!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toLocaleString()}> | Total Events: ${events.length}`
+      }]
+    }).length;
+
+    const baseSize = headerSize + contextSize + 100; // Add buffer for JSON structure
+
     for (const event of events) {
       const priceText = event.lowestPrices.length > 0
         ? event.lowestPrices.map(p => `$${p.toFixed(2)}`).join(', ')
         : 'No prices available';
 
-      blocks.push(
+      const eventBlockSize = JSON.stringify({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*<${event.url}|${event.name}>*\n💰 Lowest prices: *${priceText}*`
+        }
+      }).length + JSON.stringify({ type: 'divider' }).length;
+
+      // If adding this event would exceed limit, start a new batch
+      if (currentSize + eventBlockSize + baseSize > 3900 && currentBatch.length > 0) {
+        batches.push([...currentBatch]);
+        currentBatch = [];
+        currentSize = 0;
+      }
+
+      currentBatch.push(event);
+      currentSize += eventBlockSize;
+    }
+
+    // Add the last batch if it has events
+    if (currentBatch.length > 0) {
+      batches.push(currentBatch);
+    }
+
+    // Send each batch
+    let totalSent = 0;
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      const batchNumber = batches.length > 1 ? ` (${i + 1}/${batches.length})` : '';
+
+      const blocks: any[] = [
         {
-          type: 'section',
+          type: 'header',
           text: {
-            type: 'mrkdwn',
-            text: `*<${event.url}|${event.name}>*\n💰 Lowest prices: *${priceText}*`
+            type: 'plain_text',
+            text: `🎟️ Las Vegas Events - Today${batchNumber}`,
+            emoji: true
           }
         },
-        { type: 'divider' }
-      );
+        {
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: `Updated: <!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toLocaleString()}> | Showing ${batch.length} of ${events.length} events`
+            }
+          ]
+        }
+      ];
+
+      // Add events in this batch
+      for (const event of batch) {
+        const priceText = event.lowestPrices.length > 0
+          ? event.lowestPrices.map(p => `$${p.toFixed(2)}`).join(', ')
+          : 'No prices available';
+
+        blocks.push(
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `*<${event.url}|${event.name}>*\n💰 Lowest prices: *${priceText}*`
+            }
+          },
+          { type: 'divider' }
+        );
+      }
+
+      // Send to Slack
+      const response = await fetch(SLACK_WEBHOOK_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          channel: SLACK_CHANNEL,
+          blocks
+        })
+      });
+
+      if (response.ok) {
+        totalSent += batch.length;
+        console.log(`✓ Posted batch ${i + 1}/${batches.length}: ${batch.length} event(s) to Slack`);
+      } else {
+        console.error(`✗ Failed to post batch ${i + 1} to Slack: ${response.status} ${response.statusText}`);
+      }
+
+      // Add a small delay between batches to avoid rate limiting
+      if (i < batches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
     }
 
-    // Send to Slack
-    const response = await fetch(SLACK_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        channel: SLACK_CHANNEL,
-        blocks
-      })
-    });
-
-    if (response.ok) {
-      console.log(`✓ Posted ${events.length} event(s) to Slack`);
-    } else {
-      console.error(`✗ Failed to post to Slack: ${response.status} ${response.statusText}`);
-    }
+    console.log(`✓ Total posted: ${totalSent}/${events.length} event(s) in ${batches.length} message(s)`);
   } catch (error) {
     console.error('Error posting to Slack:', error);
   }
