@@ -45,6 +45,8 @@ jobs:
         working-directory: stubhub2-scraper
         env:
           ENABLE_VIDEO: ${{ inputs.enable_video == true || github.event_name == 'schedule' }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
         run: npm start
       
       - name: Upload videos

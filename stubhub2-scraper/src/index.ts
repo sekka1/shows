@@ -9,11 +9,85 @@ const MAX_EVENTS_TO_PROCESS: number | null = 3;
 // Set to true to run browser in headless mode (no visible window), false to see the browser
 const HEADLESS_MODE = true;
 
+// Slack configuration
+const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || '';
+const SLACK_CHANNEL = process.env.SLACK_CHANNEL || '';
+const ENABLE_SLACK = !!SLACK_WEBHOOK_URL; // Enabled if webhook URL is provided
+
 
 interface EventData {
   name: string;
   url: string;
   lowestPrices: number[];
+}
+
+/**
+ * Posts event data to Slack channel
+ */
+async function postToSlack(events: EventData[]): Promise<void> {
+  if (!ENABLE_SLACK || events.length === 0) {
+    return;
+  }
+
+  try {
+    const blocks: any[] = [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: '🎟️ Las Vegas Events - Today',
+          emoji: true
+        }
+      },
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: `Updated: <!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toLocaleString()}> | Total Events: ${events.length}`
+          }
+        ]
+      }
+    ];
+
+    // Add each event
+    for (const event of events) {
+      const priceText = event.lowestPrices.length > 0
+        ? event.lowestPrices.map(p => `$${p.toFixed(2)}`).join(', ')
+        : 'No prices available';
+
+      blocks.push(
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*<${event.url}|${event.name}>*\n💰 Lowest prices: *${priceText}*`
+          }
+        },
+        { type: 'divider' }
+      );
+    }
+
+    // Send to Slack
+    const response = await fetch(SLACK_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        channel: SLACK_CHANNEL,
+        blocks
+      })
+    });
+
+    if (response.ok) {
+      console.log(`✓ Posted ${events.length} event(s) to Slack`);
+    } else {
+      console.error(`✗ Failed to post to Slack: ${response.status} ${response.statusText}`);
+    }
+  } catch (error) {
+    console.error('Error posting to Slack:', error);
+  }
 }
 
 async function main(): Promise<void> {
@@ -346,6 +420,9 @@ async function main(): Promise<void> {
     console.log('\n\n========== FINAL RESULTS ==========');
     console.log(JSON.stringify(results, null, 2));
     console.log('\n===================================\n');
+
+    // Post to Slack
+    await postToSlack(results);
 
     // Pause so you can see the browser state
     await page.waitForTimeout(10000);
