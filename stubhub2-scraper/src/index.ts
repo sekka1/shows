@@ -3,8 +3,8 @@ import { chromium, Browser, Page } from 'playwright';
 const STUBHUB_URL = 'https://www.stubhub.com';
 
 // Set to a number to limit events processed, or null to process all events
-// const MAX_EVENTS_TO_PROCESS: number | null = null;
-const MAX_EVENTS_TO_PROCESS: number | null = 3;
+const MAX_EVENTS_TO_PROCESS: number | null = null;
+// const MAX_EVENTS_TO_PROCESS: number | null = 3;
 
 // Set to true to run browser in headless mode (no visible window), false to see the browser
 const HEADLESS_MODE = true;
