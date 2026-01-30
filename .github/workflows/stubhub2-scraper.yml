@@ -9,8 +9,8 @@ on:
         default: 'true'
         type: boolean
   schedule:
-    # Run daily at 10 AM UTC
-    - cron: '0 10 * * *'
+    # Run daily at 1 PM PST (9 PM UTC)
+    - cron: '0 21 * * *'
 
 jobs:
   scrape:
