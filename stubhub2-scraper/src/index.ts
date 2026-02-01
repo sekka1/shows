@@ -14,6 +14,10 @@ const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || '';
 const SLACK_CHANNEL = process.env.SLACK_CHANNEL || '';
 const ENABLE_SLACK = !!SLACK_WEBHOOK_URL; // Enabled if webhook URL is provided
 
+// Price range filter for Slack notifications (stdout will show all events)
+const PRICE_RANGE_LOW = 0;     // Minimum price to send to Slack
+const PRICE_RANGE_HIGH = 100; // Maximum price to send to Slack
+
 
 interface EventData {
   name: string;
@@ -24,6 +28,7 @@ interface EventData {
 /**
  * Posts event data to Slack channel
  * Splits into multiple messages if needed to stay under 4000 character limit
+ * Only sends events within the configured price range
  */
 async function postToSlack(events: EventData[]): Promise<void> {
   if (!ENABLE_SLACK || events.length === 0) {
@@ -31,6 +36,20 @@ async function postToSlack(events: EventData[]): Promise<void> {
   }
 
   try {
+    // Filter events by price range
+    const eventsInPriceRange = events.filter(event => {
+      if (!event.lowestPrices || event.lowestPrices.length === 0) return false;
+      const lowestPrice = event.lowestPrices[0];
+      return lowestPrice >= PRICE_RANGE_LOW && lowestPrice <= PRICE_RANGE_HIGH;
+    });
+
+    if (eventsInPriceRange.length === 0) {
+      console.log(`ℹ No events within price range $${PRICE_RANGE_LOW}-$${PRICE_RANGE_HIGH} to send to Slack`);
+      return;
+    }
+
+    console.log(`Sending ${eventsInPriceRange.length} of ${events.length} events to Slack (price range: $${PRICE_RANGE_LOW}-$${PRICE_RANGE_HIGH})`);
+
     // Create batches of events that fit within Slack's character limit
     const batches: EventData[][] = [];
     let currentBatch: EventData[] = [];
@@ -45,13 +64,13 @@ async function postToSlack(events: EventData[]): Promise<void> {
       type: 'context',
       elements: [{
         type: 'mrkdwn',
-        text: `Updated: <!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toLocaleString()}> | Total Events: ${events.length}`
+        text: `Updated: <!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toLocaleString()}> | Total Events: ${eventsInPriceRange.length}`
       }]
     }).length;
 
     const baseSize = headerSize + contextSize + 100; // Add buffer for JSON structure
 
-    for (const event of events) {
+    for (const event of eventsInPriceRange) {
       const priceText = event.lowestPrices.length > 0
         ? event.lowestPrices.map(p => `$${p.toFixed(2)}`).join(', ')
         : 'No prices available';
@@ -100,7 +119,7 @@ async function postToSlack(events: EventData[]): Promise<void> {
           elements: [
             {
               type: 'mrkdwn',
-              text: `Updated: <!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toLocaleString()}> | Showing ${batch.length} of ${events.length} events`
+              text: `Updated: <!date^${Math.floor(Date.now() / 1000)}^{date_short_pretty} at {time}|${new Date().toLocaleString()}> | Showing ${batch.length} of ${eventsInPriceRange.length} events`
             }
           ]
         }
