@@ -1,4 +1,6 @@
 import { chromium, Browser, Page } from 'playwright';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const STUBHUB_URL = 'https://www.stubhub.com';
 
@@ -8,6 +10,9 @@ const MAX_EVENTS_TO_PROCESS: number | null = null;
 
 // Set to true to run browser in headless mode (no visible window), false to see the browser
 const HEADLESS_MODE = true;
+
+// Enable video recording of browser sessions (useful for debugging CI failures)
+const ENABLE_VIDEO = process.env.ENABLE_VIDEO || 'true';
 
 // Slack configuration
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || '';
@@ -178,17 +183,37 @@ async function main(): Promise<void> {
   let browser: Browser | null = null;
 
   try {
+    // Create screenshots directory for debugging
+    const screenshotsDir = path.join(process.cwd(), 'screenshots');
+    try {
+      if (!fs.existsSync(screenshotsDir)) {
+        fs.mkdirSync(screenshotsDir, { recursive: true });
+        console.log('Created screenshots directory for debugging\n');
+      }
+    } catch (error) {
+      console.warn('Could not create screenshots directory:', error);
+    }
+
     console.log('Launching browser...');
     browser = await chromium.launch({ headless: HEADLESS_MODE });
 
     const context = await browser.newContext({
-      viewport: { width: 1280, height: 720 }
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 720 },
+      recordVideo: ENABLE_VIDEO === 'true' ? {
+        dir: 'videos/',
+        size: { width: 1280, height: 720 }
+      } : undefined
     });
 
     const page: Page = await context.newPage();
 
-    console.log(`Navigating to ${STUBHUB_URL}...`);
+    console.log(`Step 1: Navigating to ${STUBHUB_URL}...`);
     await page.goto(STUBHUB_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(2000);
+    await page.screenshot({ path: path.join(screenshotsDir, '01-homepage.png') });
+    console.log(`Current URL: ${page.url()}`);
+    console.log(`Page title: ${await page.title()}\n`);
 
     // Close any dismissible banners that might cover the UI
     const closeBanner = page.locator('button[aria-label*="close" i], button:has-text("×")').first();
@@ -197,23 +222,36 @@ async function main(): Promise<void> {
       await page.waitForTimeout(500);
     }
 
-    console.log('Waiting for the main Explore link...');
+    console.log('Step 2: Clicking Explore link...');
     const exploreLink = page.locator('a[href="/explore"]');
     await exploreLink.first().waitFor({ timeout: 15000 });
     await exploreLink.first().click();
     console.log('Clicked Explore');
 
-    // Wait for the Explore page to load
-    await page.waitForTimeout(3000);
+    // Wait for the Explore page to load (increased from 3000 to 5000 for CI stability)
+    await page.waitForTimeout(5000);
+    await page.screenshot({ path: path.join(screenshotsDir, '02-explore-page.png') });
+    console.log(`Current URL: ${page.url()}\n`);
 
     // Open location picker and choose Las Vegas
-    console.log('Waiting for location selector...');
+    console.log('Step 3: Opening location selector...');
 
-    // If the input is already visible, skip clicking a selector
-    const locationInput = page.locator('input[placeholder*="search location" i], input[placeholder*="Search Location" i], input[type="search"]').first();
-    const inputVisible = await locationInput.isVisible().catch(() => false);
+    // Retry mechanism for location selection (helps with timing issues in CI)
+    let locationSelectionSuccess = false;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries && !locationSelectionSuccess; attempt++) {
+      if (attempt > 1) {
+        console.log(`\nRetrying location selection (attempt ${attempt}/${maxRetries})...`);
+        await page.waitForTimeout(3000);
+      }
 
-    if (!inputVisible) {
+      try {
+        // If the input is already visible, skip clicking a selector
+        const locationInput = page.locator('input[placeholder*="search location" i], input[placeholder*="Search Location" i], input[type="search"]').first();
+        const inputVisible = await locationInput.isVisible().catch(() => false);
+
+        if (!inputVisible) {
       // Debug: log what's actually on the page
       const pageDebug = await page.evaluate(() => {
         const allButtons = Array.from(document.querySelectorAll('button'));
@@ -256,11 +294,11 @@ async function main(): Promise<void> {
         'button[aria-label*="location" i]'
       ];
 
-      let locationClicked = false;
-      for (const selector of locationSelectors) {
-        const candidate = page.locator(selector).first();
-        if (await candidate.count()) {
-          await candidate.waitFor({ timeout: 8000, state: 'visible' }).catch(() => undefined);
+          let locationClicked = false;
+          for (const selector of locationSelectors) {
+            const candidate = page.locator(selector).first();
+            if (await candidate.count()) {
+              await candidate.waitFor({ timeout: 10000, state: 'visible' }).catch(() => undefined);
           if (await candidate.isVisible().catch(() => false)) {
             // Don't click SVG elements directly - always click their parent
             let elementToClick;
@@ -285,46 +323,79 @@ async function main(): Promise<void> {
         }
       }
 
-      if (!locationClicked) {
-        throw new Error('Could not find a visible location selector');
+          if (!locationClicked) {
+            // Save diagnostic information before throwing error
+            await page.screenshot({ path: path.join(screenshotsDir, `03-location-selector-fail-attempt${attempt}.png`), fullPage: true });
+            const html = await page.content();
+            const debugHtmlPath = path.join(process.cwd(), `debug-location-fail-attempt${attempt}.html`);
+            fs.writeFileSync(debugHtmlPath, html);
+            console.error(`\n❌ Location selector not found on attempt ${attempt}`);
+            console.error(`Screenshot saved to: 03-location-selector-fail-attempt${attempt}.png`);
+            console.error(`HTML saved to: ${debugHtmlPath}\n`);
+            
+            if (attempt === maxRetries) {
+              throw new Error(`Could not find a visible location selector after ${maxRetries} attempts. See screenshots and HTML dumps for details.`);
+            }
+            continue; // Try next attempt
+          }
+        }
+
+        // Debug: check what inputs are now visible after clicking
+        const inputDebug = await page.evaluate(() => {
+          const allInputs = Array.from(document.querySelectorAll('input'));
+          return allInputs
+            .filter(i => (i as HTMLElement).offsetParent !== null)
+            .map(i => ({
+              placeholder: i.getAttribute('placeholder'),
+              type: i.type,
+              value: i.value
+            }));
+        });
+        console.log('Visible inputs after click:', JSON.stringify(inputDebug, null, 2));
+
+        // Try more flexible input selector
+        const searchLocationInput = page.locator('input[placeholder*="location" i], input[placeholder*="city" i], input[placeholder*="search" i]').first();
+        const searchInputVisible = await searchLocationInput.isVisible().catch(() => false);
+        
+        if (!searchInputVisible) {
+          await page.screenshot({ path: path.join(screenshotsDir, `03-no-location-input-attempt${attempt}.png`) });
+          console.log('Location search input not visible, the dropdown might not have opened properly');
+          if (attempt === maxRetries) {
+            throw new Error('Location dropdown did not open after clicking');
+          }
+          continue;
+        }
+
+        // Type with delay to mimic human behavior (more bot-detection resistant)
+        await searchLocationInput.type('Las Vegas', { delay: 100 });
+        await page.waitForTimeout(2000);
+        await page.screenshot({ path: path.join(screenshotsDir, '03-location-typed.png') });
+        console.log('Typed "Las Vegas" with human-like delay');
+
+        const lasVegasOption = page.locator('text=/^Las Vegas, NV, USA$/i').first();
+        await lasVegasOption.waitFor({ timeout: 15000 });
+        await lasVegasOption.click();
+        await page.waitForTimeout(2000);
+        await page.screenshot({ path: path.join(screenshotsDir, '04-location-selected.png') });
+        console.log('Selected Las Vegas, NV, USA');
+        console.log(`Current URL: ${page.url()}\n`);
+
+        // Wait for location change to take effect
+        await page.waitForTimeout(3000);
+        
+        locationSelectionSuccess = true;
+        
+      } catch (error) {
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        console.error(`Location selection failed on attempt ${attempt}:`, error instanceof Error ? error.message : String(error));
       }
     }
 
-    // Debug: check what inputs are now visible after clicking
-    const inputDebug = await page.evaluate(() => {
-      const allInputs = Array.from(document.querySelectorAll('input'));
-      return allInputs
-        .filter(i => (i as HTMLElement).offsetParent !== null)
-        .map(i => ({
-          placeholder: i.getAttribute('placeholder'),
-          type: i.type,
-          value: i.value
-        }));
-    });
-    console.log('Visible inputs after click:', JSON.stringify(inputDebug, null, 2));
-
-    // Try more flexible input selector
-    const searchLocationInput = page.locator('input[placeholder*="location" i], input[placeholder*="city" i], input[placeholder*="search" i]').first();
-    const searchInputVisible = await searchLocationInput.isVisible().catch(() => false);
-    
-    if (!searchInputVisible) {
-      console.log('Location search input not visible, the dropdown might not have opened properly');
-      throw new Error('Location dropdown did not open after clicking');
-    }
-
-    await searchLocationInput.fill('Las Vegas');
-    console.log('Typed Las Vegas');
-
-    const lasVegasOption = page.locator('text=/^Las Vegas, NV, USA$/i').first();
-    await lasVegasOption.waitFor({ timeout: 15000 });
-    await lasVegasOption.click();
-    console.log('Selected Las Vegas, NV, USA');
-
-    // Wait for location change to take effect
-    await page.waitForTimeout(3000);
-
     // Find and click the date dropdown ("All dates")
-    console.log('Looking for date filter dropdown...');
+    console.log('Step 4: Opening date filter dropdown...');
+    await page.screenshot({ path: path.join(screenshotsDir, '05-before-date-filter.png') });
     const dateDropdownSelectors = [
       'button:has-text("All dates")',
       '[role="button"]:has-text("All dates")',
@@ -356,6 +427,7 @@ async function main(): Promise<void> {
         
         // Wait for the filtered events to load
         await page.waitForTimeout(4000);
+        await page.screenshot({ path: path.join(screenshotsDir, '06-date-selected.png') });
       } else {
         console.log('"Today" option not found in dropdown');
       }
@@ -368,7 +440,8 @@ async function main(): Promise<void> {
     const results: EventData[] = [];
 
     // Find all event links on the page
-    console.log('Finding events on the page...');
+    console.log('\nStep 5: Collecting event links...');
+    await page.screenshot({ path: path.join(screenshotsDir, '07-events-page.png') });
     
     // Try multiple selectors to find event links
     const eventSelectors = [
@@ -407,6 +480,38 @@ async function main(): Promise<void> {
 
     console.log(`Total unique events found: ${eventLinks.length}`);
 
+    // Validate that we're actually getting Las Vegas events
+    if (eventLinks.length > 0) {
+      console.log('\nValidating event locations...');
+      const nonLasVegasEvents = eventLinks.filter(event => {
+        const urlLower = event.url.toLowerCase();
+        const hasLasVegas = urlLower.includes('las-vegas') || urlLower.includes('lasvegas');
+        const hasOtherCity = [
+          'san-francisco', 'sanfrancisco', 'new-york', 'newyork',
+          'los-angeles', 'losangeles', 'chicago', 'boston',
+          'seattle', 'miami', 'denver', 'phoenix'
+        ].some(city => urlLower.includes(city));
+        return !hasLasVegas || hasOtherCity;
+      });
+
+      if (nonLasVegasEvents.length > eventLinks.length * 0.5) {
+        console.error('\n❌ ERROR: Majority of events are NOT in Las Vegas!');
+        console.error('Location selection may have failed. StubHub is showing wrong location.');
+        console.error(`Non-Las Vegas events: ${nonLasVegasEvents.length} of ${eventLinks.length}`);
+        console.error('\nSample non-Las Vegas events:');
+        nonLasVegasEvents.slice(0, 3).forEach((event, idx) => {
+          console.error(`  ${idx + 1}. ${event.name}`);
+          console.error(`     URL: ${event.url}`);
+        });
+        await page.screenshot({ path: path.join(screenshotsDir, '08-wrong-location-detected.png'), fullPage: true });
+        throw new Error('Location validation failed - not showing Las Vegas events');
+      } else if (nonLasVegasEvents.length > 0) {
+        console.log(`⚠ Warning: Found ${nonLasVegasEvents.length} potential non-Las Vegas events (acceptable if < 50%)`);
+      } else {
+        console.log('✓ Location validation passed - all events appear to be in Las Vegas\n');
+      }
+    }
+
     if (eventLinks.length === 0) {
       console.log('No events found on the page. Exiting.');
     } else {
@@ -415,7 +520,7 @@ async function main(): Promise<void> {
         ? Math.min(MAX_EVENTS_TO_PROCESS, eventLinks.length) 
         : eventLinks.length;
       
-      console.log(`Processing ${eventsToProcess} of ${eventLinks.length} events`);
+      console.log(`\nStep 6: Processing ${eventsToProcess} of ${eventLinks.length} events for prices...\n`);
       
       // Iterate through each event
       for (let i = 0; i < eventsToProcess; i++) {
@@ -508,8 +613,14 @@ async function main(): Promise<void> {
     // Post to Slack
     await postToSlack(results);
 
-    // Pause so you can see the browser state
-    await page.waitForTimeout(10000);
+    // Take final screenshot
+    await page.screenshot({ path: path.join(screenshotsDir, '99-final-state.png') });
+    console.log('\n✓ Screenshots saved to ./screenshots/');
+    
+    // Save video if enabled
+    if (ENABLE_VIDEO === 'true') {
+      console.log('✓ Videos will be saved to ./videos/ after browser closes');
+    }
 
     await context.close();
   } catch (error) {

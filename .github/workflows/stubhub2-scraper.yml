@@ -64,3 +64,12 @@ jobs:
           name: screenshots
           path: stubhub2-scraper/screenshots/
           retention-days: 7
+      
+      - name: Upload debug HTML dumps
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-html
+          path: stubhub2-scraper/debug-*.html
+          retention-days: 7
+          if-no-files-found: ignore
