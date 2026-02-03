@@ -5,8 +5,8 @@ import * as path from 'path';
 const STUBHUB_URL = 'https://www.stubhub.com';
 
 // Set to a number to limit events processed, or null to process all events
-const MAX_EVENTS_TO_PROCESS: number | null = null;
-// const MAX_EVENTS_TO_PROCESS: number | null = 3;
+// const MAX_EVENTS_TO_PROCESS: number | null = null;
+const MAX_EVENTS_TO_PROCESS: number | null = 3;
 
 // Set to true to run browser in headless mode (no visible window), false to see the browser
 const HEADLESS_MODE = true;
@@ -459,13 +459,19 @@ async function main(): Promise<void> {
     }
 
     // Find and click the date dropdown ("All dates")
-    console.log('Step 4: Opening date filter dropdown...');
+    console.log('Step 4: Opening date filter (calendar picker)...');
     await page.screenshot({ path: path.join(screenshotsDir, '05-before-date-filter.png') });
+    
+    // Role-based selectors for date dropdown (same pattern as location selector)
     const dateDropdownSelectors = [
+      '[role="combobox"][aria-label*="Filter by date" i]',
+      '[role="combobox"][aria-label*="date" i]',
+      '[role="combobox"]:has-text("All dates")',
+      '[role="button"][aria-label*="date" i]',
+      // Generic fallbacks
       'button:has-text("All dates")',
       '[role="button"]:has-text("All dates")',
       'div:has-text("All dates")',
-      'button:has-text("Date")',
       '[aria-label*="date" i]',
     ];
 
@@ -473,28 +479,67 @@ async function main(): Promise<void> {
     for (const selector of dateDropdownSelectors) {
       const dropdown = page.locator(selector).first();
       if (await dropdown.count() > 0 && await dropdown.isVisible().catch(() => false)) {
-        await dropdown.click({ timeout: 5000 }).catch(() => undefined);
+        // Hover before clicking to ensure UI interaction
+        await dropdown.hover({ timeout: 3000, force: true }).catch(() => undefined);
+        await page.waitForTimeout(500);
+        await dropdown.click({ timeout: 5000, force: true }).catch(() => undefined);
         console.log(`Clicked date dropdown via selector: ${selector}`);
         dateDropdownClicked = true;
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(2000); // Wait for calendar to appear
+        
+        // Verify calendar appeared by checking for DayPicker
+        const calendarAppeared = await page.evaluate(() => {
+          return !!document.querySelector('.DayPicker, [role="dialog"]');
+        });
+        
+        if (calendarAppeared) {
+          console.log('✓ Date calendar opened successfully');
+        } else {
+          console.log('⚠ Date calendar may not have appeared');
+        }
+        
         break;
       }
     }
 
     if (!dateDropdownClicked) {
       console.log('Date dropdown not found, continuing without date filter');
+      await page.screenshot({ path: path.join(screenshotsDir, '06-date-dropdown-not-found.png') });
     } else {
-      // Select "Today" from the dropdown
-      const todayOption = page.locator('text=/^Today$/i, button:has-text("Today"), [role="option"]:has-text("Today")').first();
-      if (await todayOption.isVisible().catch(() => false)) {
-        await todayOption.click();
-        console.log('Selected "Today" from date filter');
+      // StubHub uses a calendar picker - select today's date
+      // Look for the day marked as "today" in the calendar
+      const todaySelectors = [
+        '.DayPicker-Day--today',  // Today's date in calendar
+        '[aria-label*="today" i][role="gridcell"]',
+        '[class*="today" i][role="gridcell"]',
+      ];
+      
+      let todaySelected = false;
+      for (const selector of todaySelectors) {
+        const todayCell = page.locator(selector).first();
+        if (await todayCell.isVisible().catch(() => false)) {
+          await todayCell.click();
+          console.log(`✓ Selected today's date from calendar via selector: ${selector}`);
+          todaySelected = true;
+          
+          // Wait for the filtered events to load
+          await page.waitForTimeout(4000);
+          await page.screenshot({ path: path.join(screenshotsDir, '06-date-selected.png') });
+          break;
+        }
+      }
+      
+      if (!todaySelected) {
+        console.log('⚠ Today\'s date not found in calendar');
+        await page.screenshot({ path: path.join(screenshotsDir, '06-today-not-found.png') });
         
-        // Wait for the filtered events to load
-        await page.waitForTimeout(4000);
-        await page.screenshot({ path: path.join(screenshotsDir, '06-date-selected.png') });
-      } else {
-        console.log('"Today" option not found in dropdown');
+        // Save HTML for debugging when Today's date is not found
+        if (SAVE_DEBUG_HTML) {
+          const htmlTodayFail = await page.content();
+          const debugHtmlPath = path.join(process.cwd(), 'debug-today-date-not-found.html');
+          fs.writeFileSync(debugHtmlPath, htmlTodayFail);
+          console.log(`Saved HTML when today's date not found: ${debugHtmlPath}`);
+        }
       }
     }
 
