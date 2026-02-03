@@ -576,12 +576,72 @@ async function main(): Promise<void> {
     // Wait for events to load
     await page.waitForTimeout(2000);
 
+    // Validate that events are actually for today's date
+    console.log('\nStep 5: Validating date filter...');
+    const today = new Date();
+    const expectedMonth = today.toLocaleString('en-US', { month: 'short' }); // "Feb"
+    const expectedDay = today.getDate(); // 2 (as number)
+    const expectedDatePattern = new RegExp(`${expectedMonth}\\s+0?${expectedDay}(?:\\s+|$)`, 'i'); // Matches "Feb 02" or "Feb 2"
+    
+    console.log(`Expected date pattern: ${expectedDatePattern}`);
+    
+    // Check a sample of event dates on the page
+    const eventDates = await page.evaluate(() => {
+      const elements = Array.from(document.querySelectorAll('p, div, span'));
+      const dateRegex = /\w+,\s+(\w+\s+\d{1,2})\s+•/; // Matches "Fri, Feb 06 •"
+      const foundDates: string[] = [];
+      
+      for (const el of elements) {
+        const text = el.textContent || '';
+        const match = text.match(dateRegex);
+        if (match && match[1]) {
+          foundDates.push(match[1]);
+          if (foundDates.length >= 10) break; // Check first 10 dates
+        }
+      }
+      return foundDates;
+    });
+    
+    console.log(`Found event dates on page: ${JSON.stringify(eventDates)}`);
+    
+    // Check if any dates don't match today
+    const nonTodayDates = eventDates.filter(date => !expectedDatePattern.test(date));
+    
+    if (nonTodayDates.length > 0 && eventDates.length > 0) {
+      console.error(`\n❌ ERROR: Date filter failed! Found ${nonTodayDates.length} events NOT for today:`);
+      console.error(`Expected: ${expectedMonth} ${expectedDay}`);
+      console.error(`Found: ${JSON.stringify(eventDates)}`);
+      
+      // Save diagnostic HTML and screenshot
+      await page.screenshot({ path: path.join(screenshotsDir, '07-date-filter-failed.png'), fullPage: true });
+      
+      if (SAVE_DEBUG_HTML) {
+        const htmlDateFailed = await page.content();
+        const debugHtmlPath = path.join(process.cwd(), 'debug-date-filter-failed.html');
+        fs.writeFileSync(debugHtmlPath, htmlDateFailed);
+        console.error(`Saved HTML for debugging: ${debugHtmlPath}`);
+        
+        // Also save calendar state HTML if available
+        const calendarHtml = await page.evaluate(() => {
+          const calendar = document.querySelector('.DayPicker, [role="dialog"]');
+          return calendar ? calendar.outerHTML : 'Calendar not found in DOM';
+        });
+        const calendarHtmlPath = path.join(process.cwd(), 'debug-calendar-state.html');
+        fs.writeFileSync(calendarHtmlPath, calendarHtml);
+        console.error(`Saved calendar HTML: ${calendarHtmlPath}`);
+      }
+      
+      throw new Error(`Date filter validation failed: Events are not filtered to today (${expectedMonth} ${expectedDay})`);
+    }
+    
+    console.log(`✓ Date filter validation passed - all events are for today (${expectedMonth} ${expectedDay})`);
+
     // Collect all event data
     const results: EventData[] = [];
 
     // Find all event links on the page
-    console.log('\nStep 5: Collecting event links...');
-    await page.screenshot({ path: path.join(screenshotsDir, '07-events-page.png') });
+    console.log('\nStep 6: Collecting event links...');
+    await page.screenshot({ path: path.join(screenshotsDir, '08-events-page.png') });
     
     // Try multiple selectors to find event links
     const eventSelectors = [
@@ -622,7 +682,7 @@ async function main(): Promise<void> {
 
     // Validate that we're actually getting Las Vegas events
     if (eventLinks.length > 0) {
-      console.log('\nValidating event locations...');
+      console.log('\nStep 6.1: Validating event locations...');
       const nonLasVegasEvents = eventLinks.filter(event => {
         const urlLower = event.url.toLowerCase();
         const hasLasVegas = urlLower.includes('las-vegas') || urlLower.includes('lasvegas');
@@ -643,7 +703,7 @@ async function main(): Promise<void> {
           console.error(`  ${idx + 1}. ${event.name}`);
           console.error(`     URL: ${event.url}`);
         });
-        await page.screenshot({ path: path.join(screenshotsDir, '08-wrong-location-detected.png'), fullPage: true });
+        await page.screenshot({ path: path.join(screenshotsDir, '09-wrong-location-detected.png'), fullPage: true });
         throw new Error('Location validation failed - not showing Las Vegas events');
       } else if (nonLasVegasEvents.length > 0) {
         console.log(`⚠ Warning: Found ${nonLasVegasEvents.length} potential non-Las Vegas events (acceptable if < 50%)`);
@@ -660,7 +720,7 @@ async function main(): Promise<void> {
         ? Math.min(MAX_EVENTS_TO_PROCESS, eventLinks.length) 
         : eventLinks.length;
       
-      console.log(`\nStep 6: Processing ${eventsToProcess} of ${eventLinks.length} events for prices...\n`);
+      console.log(`\nStep 7: Processing ${eventsToProcess} of ${eventLinks.length} events for prices...\n`);
       
       // Iterate through each event
       for (let i = 0; i < eventsToProcess; i++) {
