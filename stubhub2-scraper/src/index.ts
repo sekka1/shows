@@ -521,8 +521,35 @@ async function main(): Promise<void> {
       for (const selector of calendarSelectors) {
         const todayCell = page.locator(selector).first();
         if (await todayCell.isVisible().catch(() => false)) {
+          // Click today's date to set as start date
           await todayCell.click();
           console.log(`✓ Selected today's date from calendar via selector: ${selector}`);
+          await page.waitForTimeout(500);
+          
+          // Click today's date AGAIN to set as end date (creates single-day range)
+          await todayCell.click();
+          console.log('✓ Clicked today\'s date again to set as end date');
+          await page.waitForTimeout(1000);
+          
+          // Verify calendar dialog closed (filter applied)
+          const dialogStillOpen = await page.evaluate(() => {
+            const dialog = document.querySelector('[role="dialog"]');
+            return dialog && dialog.offsetParent !== null;
+          });
+          
+          if (!dialogStillOpen) {
+            console.log('✓ Calendar dialog closed - filter applied');
+          } else {
+            console.log('⚠ Calendar dialog still open - trying to close it');
+            // Try pressing Escape to close
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(500);
+            
+            // Or try clicking outside the dialog
+            await page.mouse.click(100, 100);
+            await page.waitForTimeout(500);
+          }
+          
           todaySelected = true;
           
           // Wait for the filtered events to load
