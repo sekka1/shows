@@ -272,26 +272,43 @@ async function main(): Promise<void> {
       });
       console.log('Page debug info:', JSON.stringify(pageDebug, null, 2));
 
+      // Major US cities - GitHub Actions can be geolocated to any of these
+      // StubHub shows the city closest to the server's IP address
+      const majorCities = [
+        'Des Moines', 'Seattle', 'Phoenix', 'San Francisco', 'Portland',
+        'Denver', 'Austin', 'Dallas', 'Houston', 'San Antonio',
+        'Las Vegas', 'New York', 'Los Angeles', 'Chicago', 'Philadelphia',
+        'Boston', 'Miami', 'Atlanta', 'Detroit', 'Minneapolis',
+        'San Diego', 'Tampa', 'St. Louis', 'Baltimore', 'Charlotte',
+        'Nashville', 'Indianapolis', 'Columbus', 'Milwaukee', 'Kansas City',
+        'Sacramento', 'Cleveland', 'Pittsburgh', 'Cincinnati', 'Orlando'
+      ];
+
       const locationSelectors = [
-        // Try to find the actual clickable container that has both text and svg
-        '*:has(> div:has-text("Las Vegas")):has(> svg)',
-        '*:has(> div:has-text("New York")):has(> svg)',
-        '*:has(> div:has-text("Los Angeles")):has(> svg)',
-        '*:has(> div:has-text("Chicago")):has(> svg)',
-        // Try button/div with text and svg children
-        'button:has(div:has-text("Las Vegas")):has(svg)',
-        'button:has(div:has-text("New York")):has(svg)',
-        'div:has(div:has-text("Las Vegas")):has(svg)',
-        'div:has(div:has-text("New York")):has(svg)',
-        // Broader searches
-        '[role="button"]:has-text("Las Vegas")',
-        'button:has-text("Las Vegas")',
-        'button:has-text("New York")',
-        // Fallback to SVG parent approach
-        'div:has-text("Las Vegas") svg',
-        'div:has-text("New York") svg',
+        // Generic selector for any city with SVG icon (MOST RELIABLE - doesn't depend on specific city)
+        // Matches format like "Des Moines, IA" or "New York, NY"
         'button:has(svg):has-text(",")',
-        'button[aria-label*="location" i]'
+        '[role="button"]:has(svg):has-text(",")',
+        '*:has(> svg):has-text(",")',
+        
+        // Try to find the actual clickable container for each major city
+        ...majorCities.flatMap(city => [
+          `*:has(> div:has-text("${city}")):has(> svg)`,
+          `button:has(div:has-text("${city}")):has(svg)`,
+          `div:has(div:has-text("${city}")):has(svg)`,
+        ]),
+        
+        // Broader fallback searches for most common cities
+        '[role="button"]:has-text("Las Vegas")',
+        '[role="button"]:has-text("New York")',
+        '[role="button"]:has-text("Des Moines")',
+        '[role="button"]:has-text("Seattle")',
+        'button:has-text("Las Vegas")',
+        'button:has-text("Des Moines")',
+        
+        // Final fallbacks
+        'button[aria-label*="location" i]',
+        '[aria-label*="city" i]'
       ];
 
           let locationClicked = false;
