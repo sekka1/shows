@@ -14,6 +14,9 @@ const HEADLESS_MODE = true;
 // Enable video recording of browser sessions (useful for debugging CI failures)
 const ENABLE_VIDEO = process.env.ENABLE_VIDEO || 'true';
 
+// Save HTML dumps for debugging location selector issues (useful for CI failures)
+const SAVE_DEBUG_HTML = process.env.SAVE_DEBUG_HTML !== 'false'; // Enabled by default
+
 // Slack configuration
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || '';
 const SLACK_CHANNEL = process.env.SLACK_CHANNEL || '';
@@ -252,6 +255,14 @@ async function main(): Promise<void> {
         const inputVisible = await locationInput.isVisible().catch(() => false);
 
         if (!inputVisible) {
+      // Save HTML before attempting to find location selector
+      if (SAVE_DEBUG_HTML) {
+        const htmlBefore = await page.content();
+        const debugHtmlPath = path.join(process.cwd(), `debug-before-location-attempt${attempt}.html`);
+        fs.writeFileSync(debugHtmlPath, htmlBefore);
+        console.log(`Saved HTML before location selection: ${debugHtmlPath}`);
+      }
+
       // Debug: log what's actually on the page
       const pageDebug = await page.evaluate(() => {
         const allButtons = Array.from(document.querySelectorAll('button'));
@@ -335,6 +346,15 @@ async function main(): Promise<void> {
             
             locationClicked = true;
             await page.waitForTimeout(3000); // Wait longer for dropdown
+            
+            // Save HTML after clicking to debug dropdown state
+            if (SAVE_DEBUG_HTML) {
+              const htmlAfterClick = await page.content();
+              const debugHtmlPath = path.join(process.cwd(), `debug-after-click-attempt${attempt}.html`);
+              fs.writeFileSync(debugHtmlPath, htmlAfterClick);
+              console.log(`Saved HTML after clicking: ${debugHtmlPath}`);
+            }
+            
             break;
           }
         }
@@ -376,6 +396,15 @@ async function main(): Promise<void> {
         
         if (!searchInputVisible) {
           await page.screenshot({ path: path.join(screenshotsDir, `03-no-location-input-attempt${attempt}.png`) });
+          
+          // Save HTML when dropdown fails to open
+          if (SAVE_DEBUG_HTML) {
+            const htmlDropdownFail = await page.content();
+            const debugHtmlPath = path.join(process.cwd(), `debug-dropdown-not-opened-attempt${attempt}.html`);
+            fs.writeFileSync(debugHtmlPath, htmlDropdownFail);
+            console.log(`Saved HTML after dropdown failed to open: ${debugHtmlPath}`);
+          }
+          
           console.log('Location search input not visible, the dropdown might not have opened properly');
           if (attempt === maxRetries) {
             throw new Error('Location dropdown did not open after clicking');
