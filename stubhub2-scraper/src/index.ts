@@ -533,7 +533,7 @@ async function main(): Promise<void> {
           
           // Verify calendar dialog closed (filter applied)
           const dialogStillOpen = await page.evaluate(() => {
-            const dialog = document.querySelector('[role="dialog"]');
+            const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
             return dialog && dialog.offsetParent !== null;
           });
           
