@@ -603,14 +603,23 @@ async function main(): Promise<void> {
     // Wait for events to load
     await page.waitForTimeout(2000);
 
-    // Validate that events are actually for today's date
+    // Validate that events are filtered to a single date (accounting for UTC vs local time differences)
     console.log('\nStep 5: Validating date filter...');
     const today = new Date();
-    const expectedMonth = today.toLocaleString('en-US', { month: 'short' }); // "Feb"
-    const expectedDay = today.getDate(); // 2 (as number)
-    const expectedDatePattern = new RegExp(`${expectedMonth}\\s+0?${expectedDay}(?:\\s+|$)`, 'i'); // Matches "Feb 02" or "Feb 2"
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
     
-    console.log(`Expected date pattern: ${expectedDatePattern}`);
+    const todayMonth = today.toLocaleString('en-US', { month: 'short' });
+    const todayDay = today.getDate();
+    const yesterdayMonth = yesterday.toLocaleString('en-US', { month: 'short' });
+    const yesterdayDay = yesterday.getDate();
+    const tomorrowMonth = tomorrow.toLocaleString('en-US', { month: 'short' });
+    const tomorrowDay = tomorrow.getDate();
+    
+    console.log(`Script running date (UTC): ${todayMonth} ${todayDay}`);
+    console.log(`Acceptable event dates: ${yesterdayMonth} ${yesterdayDay} (yesterday), ${todayMonth} ${todayDay} (today), ${tomorrowMonth} ${tomorrowDay} (tomorrow)`);
     
     // Check a sample of event dates on the page
     const eventDates = await page.evaluate(() => {
@@ -631,37 +640,71 @@ async function main(): Promise<void> {
     
     console.log(`Found event dates on page: ${JSON.stringify(eventDates)}`);
     
-    // Check if any dates don't match today
-    const nonTodayDates = eventDates.filter(date => !expectedDatePattern.test(date));
-    
-    if (nonTodayDates.length > 0 && eventDates.length > 0) {
-      console.error(`\n❌ ERROR: Date filter failed! Found ${nonTodayDates.length} events NOT for today:`);
-      console.error(`Expected: ${expectedMonth} ${expectedDay}`);
-      console.error(`Found: ${JSON.stringify(eventDates)}`);
+    if (eventDates.length === 0) {
+      console.log('⚠ No events found on page - might be no events for today');
+    } else {
+      // Check that all events are for the SAME date (consistent filtering)
+      const uniqueDates = [...new Set(eventDates)];
       
-      // Save diagnostic HTML and screenshot
-      await page.screenshot({ path: path.join(screenshotsDir, '07-date-filter-failed.png'), fullPage: true });
-      
-      if (SAVE_DEBUG_HTML) {
-        const htmlDateFailed = await page.content();
-        const debugHtmlPath = path.join(process.cwd(), 'debug-date-filter-failed.html');
-        fs.writeFileSync(debugHtmlPath, htmlDateFailed);
-        console.error(`Saved HTML for debugging: ${debugHtmlPath}`);
+      if (uniqueDates.length > 1) {
+        console.error(`\n❌ ERROR: Events show multiple dates - filter may not be working!`);
+        console.error(`Found dates: ${JSON.stringify(uniqueDates)}`);
         
-        // Also save calendar state HTML if available
-        const calendarHtml = await page.evaluate(() => {
-          const calendar = document.querySelector('.DayPicker, [role="dialog"]');
-          return calendar ? calendar.outerHTML : 'Calendar not found in DOM';
-        });
-        const calendarHtmlPath = path.join(process.cwd(), 'debug-calendar-state.html');
-        fs.writeFileSync(calendarHtmlPath, calendarHtml);
-        console.error(`Saved calendar HTML: ${calendarHtmlPath}`);
+        // Save diagnostic HTML
+        await page.screenshot({ path: path.join(screenshotsDir, '07-date-filter-failed.png'), fullPage: true });
+        
+        if (SAVE_DEBUG_HTML) {
+          const htmlDateFailed = await page.content();
+          const debugHtmlPath = path.join(process.cwd(), 'debug-date-filter-failed.html');
+          fs.writeFileSync(debugHtmlPath, htmlDateFailed);
+          console.error(`Saved HTML for debugging: ${debugHtmlPath}`);
+        }
+        
+        throw new Error(`Date filter validation failed: Events showing multiple dates ${JSON.stringify(uniqueDates)}`);
       }
       
-      throw new Error(`Date filter validation failed: Events are not filtered to today (${expectedMonth} ${expectedDay})`);
+      // Check that the single date is within ±1 day of today (accounts for UTC vs local timezone)
+      const eventDate = uniqueDates[0];
+      const validDatePatterns = [
+        new RegExp(`${yesterdayMonth}\\s+0?${yesterdayDay}(?:\\s+|$)`, 'i'),
+        new RegExp(`${todayMonth}\\s+0?${todayDay}(?:\\s+|$)`, 'i'),
+        new RegExp(`${tomorrowMonth}\\s+0?${tomorrowDay}(?:\\s+|$)`, 'i'),
+      ];
+      
+      const isValidDate = validDatePatterns.some(pattern => pattern.test(eventDate));
+      
+      if (!isValidDate) {
+        console.error(`\n❌ ERROR: Date filter failed! Events are for ${eventDate}, which is not within ±1 day of today`);
+        console.error(`Script date (UTC): ${todayMonth} ${todayDay}`);
+        console.error(`Event date: ${eventDate}`);
+        
+        // Save diagnostic HTML
+        await page.screenshot({ path: path.join(screenshotsDir, '07-date-filter-failed.png'), fullPage: true });
+        
+        if (SAVE_DEBUG_HTML) {
+          const htmlDateFailed = await page.content();
+          const debugHtmlPath = path.join(process.cwd(), 'debug-date-filter-failed.html');
+          fs.writeFileSync(debugHtmlPath, htmlDateFailed);
+          console.error(`Saved HTML for debugging: ${debugHtmlPath}`);
+          
+          // Also save calendar state HTML if available
+          const calendarHtml = await page.evaluate(() => {
+            const calendar = document.querySelector('.DayPicker, [role="dialog"]');
+            return calendar ? calendar.outerHTML : 'Calendar not found in DOM';
+          });
+          const calendarHtmlPath = path.join(process.cwd(), 'debug-calendar-state.html');
+          fs.writeFileSync(calendarHtmlPath, calendarHtml);
+          console.error(`Saved calendar HTML: ${calendarHtmlPath}`);
+        }
+        
+        throw new Error(`Date filter validation failed: Events are for ${eventDate}, not today`);
+      }
+      
+      console.log(`✓ Date filter validation passed - all ${eventDates.length} events are for ${eventDate}`);
+      if (eventDate !== `${todayMonth} ${todayDay}`) {
+        console.log(`  Note: Script is in UTC (${todayMonth} ${todayDay}) but events are in local time (${eventDate})`);
+      }
     }
-    
-    console.log(`✓ Date filter validation passed - all events are for today (${expectedMonth} ${expectedDay})`);
 
     // Collect all event data
     const results: EventData[] = [];
