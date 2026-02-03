@@ -506,16 +506,19 @@ async function main(): Promise<void> {
       console.log('Date dropdown not found, continuing without date filter');
       await page.screenshot({ path: path.join(screenshotsDir, '06-date-dropdown-not-found.png') });
     } else {
-      // StubHub uses a calendar picker - select today's date
-      // Look for the day marked as "today" in the calendar
-      const todaySelectors = [
+      // StubHub may use either a calendar picker OR a dropdown menu with "Today" option
+      // Try both approaches to handle whichever UI they're using
+      
+      let todaySelected = false;
+      
+      // APPROACH 1: Try calendar picker first (current UI as of Feb 2026)
+      const calendarSelectors = [
         '.DayPicker-Day--today',  // Today's date in calendar
         '[aria-label*="today" i][role="gridcell"]',
         '[class*="today" i][role="gridcell"]',
       ];
       
-      let todaySelected = false;
-      for (const selector of todaySelectors) {
+      for (const selector of calendarSelectors) {
         const todayCell = page.locator(selector).first();
         if (await todayCell.isVisible().catch(() => false)) {
           await todayCell.click();
@@ -529,8 +532,35 @@ async function main(): Promise<void> {
         }
       }
       
+      // APPROACH 2: Try dropdown menu with "Today" option (fallback for older UI)
       if (!todaySelected) {
-        console.log('⚠ Today\'s date not found in calendar');
+        console.log('Calendar not found, trying dropdown menu approach...');
+        
+        const dropdownOptionSelectors = [
+          '[role="option"]:has-text("Today")',
+          'button:has-text("Today")',
+          'li:has-text("Today")',
+          'div[role="menuitem"]:has-text("Today")',
+          'text=/^Today$/i',
+        ];
+        
+        for (const selector of dropdownOptionSelectors) {
+          const todayOption = page.locator(selector).first();
+          if (await todayOption.isVisible().catch(() => false)) {
+            await todayOption.click();
+            console.log(`✓ Selected "Today" from dropdown via selector: ${selector}`);
+            todaySelected = true;
+            
+            // Wait for the filtered events to load
+            await page.waitForTimeout(4000);
+            await page.screenshot({ path: path.join(screenshotsDir, '06-date-selected.png') });
+            break;
+          }
+        }
+      }
+      
+      if (!todaySelected) {
+        console.log('⚠ Could not select today\'s date (tried both calendar and dropdown approaches)');
         await page.screenshot({ path: path.join(screenshotsDir, '06-today-not-found.png') });
         
         // Save HTML for debugging when Today's date is not found

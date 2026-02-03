@@ -129,6 +129,59 @@ await element.waitFor({ timeout: 10000, state: 'visible' });
 
 **Why:** GitHub Actions uses shared VMs with variable performance.
 
+#### 6. **Try Multiple UI Interaction Patterns** (CRITICAL)
+Websites often A/B test or change UI patterns over time. Always implement multiple approaches to accomplish the same goal:
+
+```typescript
+// ✅ CORRECT - Handle both calendar AND dropdown date pickers
+let todaySelected = false;
+
+// APPROACH 1: Try calendar picker (current UI)
+const calendarSelectors = ['.DayPicker-Day--today', '[aria-label*="today"]'];
+for (const selector of calendarSelectors) {
+  if (await element.isVisible()) {
+    await element.click();
+    todaySelected = true;
+    break;
+  }
+}
+
+// APPROACH 2: Try dropdown menu (legacy UI or A/B test variant)
+if (!todaySelected) {
+  const dropdownSelectors = ['[role="option"]:has-text("Today")', 'button:has-text("Today")'];
+  for (const selector of dropdownSelectors) {
+    if (await element.isVisible()) {
+      await element.click();
+      todaySelected = true;
+      break;
+    }
+  }
+}
+
+// APPROACH 3: Could add date input, date range picker, etc.
+if (!todaySelected) {
+  // Try another pattern...
+}
+```
+
+**Why:** 
+- Websites change UI patterns without warning
+- A/B tests may show different users different interfaces
+- Geographic variations may use different components
+- Trying multiple approaches makes scraper resilient to UI changes
+
+**Real Examples:**
+- **Date Selection:** StubHub changed from dropdown menu ("Today", "Tomorrow", "This week") to calendar picker (DayPicker component) - we handle BOTH
+- **Location Selection:** Shows different city formats ("Las Vegas, NV" vs just "Washington") based on IP geolocation - we handle ALL variants
+- **Event Cards:** May use different HTML structures for promoted vs standard events - we try multiple selectors
+
+**Pattern to Follow:**
+1. Identify the goal (e.g., "select today's date")
+2. List all known UI patterns that could accomplish it
+3. Implement detection + interaction for each pattern
+4. Try them in order from most-to-least likely
+5. Log which pattern worked for debugging
+
 ---
 
 ## Technology Stack
