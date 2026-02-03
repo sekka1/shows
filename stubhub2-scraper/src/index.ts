@@ -295,30 +295,49 @@ async function main(): Promise<void> {
         'Sacramento', 'Cleveland', 'Pittsburgh', 'Cincinnati', 'Orlando', 'Washington'
       ];
 
+      // City name variations to handle short names, full names, etc.
+      const cityVariations: Record<string, string[]> = {
+        'Washington': ['Washington', 'Washington, DC', 'DC'],
+        'Las Vegas': ['Las Vegas', 'Las Vegas, NV', 'Vegas'],
+        'New York': ['New York', 'New York, NY', 'NYC', 'NY'],
+        'Los Angeles': ['Los Angeles', 'Los Angeles, CA', 'LA', 'L.A.'],
+        'San Francisco': ['San Francisco', 'San Francisco, CA', 'SF', 'S.F.'],
+        'San Diego': ['San Diego', 'San Diego, CA'],
+        'San Antonio': ['San Antonio', 'San Antonio, TX'],
+        'St. Louis': ['St. Louis', 'St Louis', 'St. Louis, MO', 'Saint Louis'],
+        'Kansas City': ['Kansas City', 'Kansas City, MO', 'KC'],
+        'Des Moines': ['Des Moines', 'Des Moines, IA'],
+      };
+
+      // Build comprehensive list of all city variations
+      const allCityVariations = [
+        ...majorCities,
+        ...Object.values(cityVariations).flat()
+      ];
+
       const locationSelectors = [
-        // Generic selector for any city with SVG icon (MOST RELIABLE - doesn't depend on specific city)
-        // Matches format like "Des Moines, IA" or "New York, NY"
-        'button:has(svg):has-text(",")',
-        '[role="button"]:has(svg):has-text(",")',
-        '*:has(> svg):has-text(",")',
+        // MOST SPECIFIC: Target the combobox role with aria-label (prevents matching event cards)
+        '[role="combobox"][aria-label*="location" i]',
+        '[role="combobox"][aria-label*="Filter by location" i]',
         
-        // Try to find the actual clickable container for each major city
-        ...majorCities.flatMap(city => [
-          `*:has(> div:has-text("${city}")):has(> svg)`,
-          `button:has(div:has-text("${city}")):has(svg)`,
-          `div:has(div:has-text("${city}")):has(svg)`,
+        // Role-based with SVG icon (common pattern on StubHub)
+        '[role="combobox"]:has(svg)',
+        '[role="button"][aria-label*="location" i]:has(svg)',
+        
+        // Generic role-based selectors that work with both "City, ST" and "City" formats
+        '[role="combobox"]:has-text(",")',  // Matches "Las Vegas, NV"
+        '[role="button"]:has-text(",")',
+        
+        // Try all city variations with role targeting
+        ...allCityVariations.flatMap(city => [
+          `[role="combobox"]:has-text("${city}")`,
+          `[role="button"][aria-label*="location" i]:has-text("${city}")`,
+          `div[role="combobox"]:has-text("${city}")`,
         ]),
         
-        // Broader fallback searches for most common cities
-        '[role="button"]:has-text("Las Vegas")',
-        '[role="button"]:has-text("New York")',
-        '[role="button"]:has-text("Des Moines")',
-        '[role="button"]:has-text("Seattle")',
-        'button:has-text("Las Vegas")',
-        'button:has-text("Des Moines")',
-        
-        // Final fallbacks
+        // Final generic fallbacks
         'button[aria-label*="location" i]',
+        'div[aria-label*="location" i]',
         '[aria-label*="city" i]'
       ];
 
