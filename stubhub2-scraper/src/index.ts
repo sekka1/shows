@@ -292,7 +292,7 @@ async function main(): Promise<void> {
         'Boston', 'Miami', 'Atlanta', 'Detroit', 'Minneapolis',
         'San Diego', 'Tampa', 'St. Louis', 'Baltimore', 'Charlotte',
         'Nashville', 'Indianapolis', 'Columbus', 'Milwaukee', 'Kansas City',
-        'Sacramento', 'Cleveland', 'Pittsburgh', 'Cincinnati', 'Orlando'
+        'Sacramento', 'Cleveland', 'Pittsburgh', 'Cincinnati', 'Orlando', 'Washington'
       ];
 
       const locationSelectors = [
